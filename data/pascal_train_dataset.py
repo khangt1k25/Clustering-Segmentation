@@ -15,7 +15,6 @@ from data.utils import *
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
     FILE = 'PASCAL_VOC.tgz'
-    db_name = 'VOCSegmentation'
     def __init__(self, root, labeldir, mode, split='train', res1=320, res2=640, inv_list=[], eqv_list=[], \
                  stuff=True, thing=False, scale=(0.5, 1), version=7, download=True):
         self.root  = root 
@@ -42,9 +41,8 @@ class TrainPASCAL(data.Dataset):
 
     def _download(self):
         
-        
-
-        _fpath = os.path.join(self.root, self.db_name, self.FILE)
+    
+        _fpath = os.path.join(self.root, self.FILE)
 
         if os.path.isfile(_fpath):
             print('Files already downloaded')
@@ -58,7 +56,7 @@ class TrainPASCAL(data.Dataset):
         cwd = os.getcwd()
         print('\nExtracting tar file')
         tar = tarfile.open(_fpath)
-        os.chdir(os.path.join(self.root, self.db_name))
+        os.chdir(os.path.join(self.root))
         tar.extractall()
         tar.close()
         os.chdir(cwd)
