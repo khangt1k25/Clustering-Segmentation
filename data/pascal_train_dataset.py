@@ -1,4 +1,5 @@
-import os 
+import os
+import tarfile 
 import torch 
 import torch.nn as nn 
 import torch.utils.data as data
@@ -8,11 +9,15 @@ import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
 from data.custom_transforms import *
-        
+from data.utils import *  
+
 
 class TrainPASCAL(data.Dataset):
+    GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
+    FILE = 'PASCAL_VOC.tgz'
+    db_name = 'VOCSegmentation'
     def __init__(self, root, labeldir, mode, split='train', res1=320, res2=640, inv_list=[], eqv_list=[], \
-                 stuff=True, thing=False, scale=(0.5, 1), version=7):
+                 stuff=True, thing=False, scale=(0.5, 1), version=7, download=True):
         self.root  = root 
         self.split = split
         self.res1  = res1
@@ -28,10 +33,36 @@ class TrainPASCAL(data.Dataset):
         self.labeldir = labeldir
 
         self.version  = version  # 7 is what we used. 
-      
+        
+        if download:
+            self._download()
         
         self.imdb = self.load_imdb()
         self.reshuffle() 
+
+    def _download(self):
+        
+        
+
+        _fpath = os.path.join(self.root, self.db_name, self.FILE)
+
+        if os.path.isfile(_fpath):
+            print('Files already downloaded')
+            return
+        else:
+            print('Downloading dataset from google drive')
+            mkdir_if_missing(os.path.dirname(_fpath))
+            download_file_from_google_drive(self.GOOGLE_DRIVE_ID, _fpath)
+
+        # extract file
+        cwd = os.getcwd()
+        print('\nExtracting tar file')
+        tar = tarfile.open(_fpath)
+        os.chdir(os.path.join(self.root, self.db_name))
+        tar.extractall()
+        tar.close()
+        os.chdir(cwd)
+        print('Done!')
 
     def load_imdb(self):
         

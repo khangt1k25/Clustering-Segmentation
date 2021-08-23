@@ -1,7 +1,7 @@
 K_train=21
 K_test=21
-bsize=256
-num_epoch=2
+bsize=32
+num_epoch=10
 KM_INIT=20
 KM_NUM=1
 KM_ITER=20
