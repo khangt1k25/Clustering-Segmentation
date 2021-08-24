@@ -24,6 +24,7 @@ class GaussianBlur(object):
 
 
 class EvalPASCAL(data.Dataset):
+    DB_NAME = 'VOCSegmentation'
     def __init__(self, root, split, mode, res=128, transform_list=[], label=True, stuff=True, thing=False):
         self.root  = root 
         self.split = split
@@ -44,7 +45,7 @@ class EvalPASCAL(data.Dataset):
         # imdb = tuple(open(imdb, "r"))
         # imdb = [id_.rstrip() for id_ in imdb]
         
-        path_to_train = os.path.join(self.root, 'sets', '{}.txt'.format(self.split))
+        path_to_train = os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split))
 
         with open(path_to_train, 'r') as f:
             imdb = f.read().splitlines()
@@ -64,8 +65,8 @@ class EvalPASCAL(data.Dataset):
         Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
         """
         N = len(self.imdb)
-        image_path = os.path.join(self.root, 'images', '{}.jpg'.format(image_id))
-        label_path = os.path.join(self.root, 'SegmentationClassAug', '{}.jpg'.format(image_id))
+        image_path = os.path.join(self.root, self.DB_NAME, 'images', '{}.jpg'.format(image_id))
+        label_path = os.path.join(self.root, self.DB_NAME, 'SegmentationClassAug', '{}.png'.format(image_id))
 
         image = Image.open(image_path).convert('RGB')
         label = Image.open(label_path)

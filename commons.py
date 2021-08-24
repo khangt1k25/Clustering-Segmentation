@@ -10,14 +10,16 @@ from utils import *
 import warnings
 warnings.filterwarnings('ignore')
 
-def get_model_and_optimizer(args, logger):
+def get_model_and_optimizer(args, logger, device):
     # Init model 
     model = fpn.PanopticFPN(args)
     model = nn.DataParallel(model)
-    model = model.cuda()
+    # model = model.cuda()
+    model = model.to(device)
+
 
     # Init classifier (for eval only.)
-    classifier = initialize_classifier(args)
+    classifier = initialize_classifier(args, device)
 
     # Init optimizer 
     if args.optim_type == 'SGD':
@@ -47,13 +49,13 @@ def get_model_and_optimizer(args, logger):
 
 
 
-def run_mini_batch_kmeans(args, logger, dataloader, model, view):
+def run_mini_batch_kmeans(args, logger, dataloader, model, view, device):
     """
     num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
     num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
     """
     kmeans_loss  = AverageMeter()
-    faiss_module = get_faiss_module(args)
+    # faiss_module = get_faiss_module(args)
     data_count   = np.zeros(args.K_train)
     featslist    = []
     num_batches  = 0
@@ -67,14 +69,16 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, view):
         for i_batch, (indice, image) in enumerate(dataloader):
             # 1. Compute initial centroids from the first few batches. 
             if view == 1:
-                image = eqv_transform_if_needed(args, dataloader, indice, image.cuda(non_blocking=True))
+                image = eqv_transform_if_needed(args, dataloader, indice, image.to(device))
                 feats = model(image)
             elif view == 2:
-                image = image.cuda(non_blocking=True)
+                # image = image.cuda(non_blocking=True)
+                image = image.to(device)
                 feats = eqv_transform_if_needed(args, dataloader, indice, model(image))
             else:
                 # For evaluation. 
-                image = image.cuda(non_blocking=True)
+                # image = image.cuda(non_blocking=True)
+                image = image.to(device)
                 feats = model(image)
 
             # Normalize.
@@ -133,7 +137,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, view):
 
 
 
-def compute_labels(args, logger, dataloader, model, centroids, view):
+def compute_labels(args, logger, dataloader, model, centroids, view, device):
     """
     Label all images for each view with the obtained cluster centroids. 
     The distance is efficiently computed by setting centroids as convolution layer. 
@@ -151,10 +155,11 @@ def compute_labels(args, logger, dataloader, model, centroids, view):
     with torch.no_grad():
         for i, (indice, image) in enumerate(dataloader):
             if view == 1:
-                image = eqv_transform_if_needed(args, dataloader, indice, image.cuda(non_blocking=True))
+                image = eqv_transform_if_needed(args, dataloader, indice, image.to(device))
                 feats = model(image)
             elif view == 2:
-                image = image.cuda(non_blocking=True)
+                # image = image.cuda(non_blocking=True)
+                image = image.to(device)
                 feats = eqv_transform_if_needed(args, dataloader, indice, model(image))
 
             # Normalize.
@@ -181,7 +186,7 @@ def compute_labels(args, logger, dataloader, model, centroids, view):
     return weight
 
 
-def evaluate(args, logger, dataloader, classifier, model):
+def evaluate(args, logger, dataloader, classifier, model, device):
     logger.info('====== METRIC TEST : {} ======\n'.format(args.metric_test))
     histogram = np.zeros((args.K_test, args.K_test))
 
@@ -189,7 +194,8 @@ def evaluate(args, logger, dataloader, classifier, model):
     classifier.eval()
     with torch.no_grad():
         for i, (_, image, label) in enumerate(dataloader):
-            image = image.cuda(non_blocking=True)
+            # image = image.cuda(non_blocking=True)
+            image = image.to(device)
             feats = model(image)
 
             if args.metric_test == 'cosine':

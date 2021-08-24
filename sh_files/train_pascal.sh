@@ -11,7 +11,7 @@ LR=1e-4
 mkdir -p results/picie/train/${SEED}
 
 python train_pascal.py \
---data_root PASCAL_VOC/VOCSegmentation \
+--data_root PASCAL_VOC \
 --save_root results/pascal/train/${SEED} \
 --pretrain \
 --repeats 1 \

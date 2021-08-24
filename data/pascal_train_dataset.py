@@ -15,8 +15,9 @@ from data.utils import *
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
     FILE = 'PASCAL_VOC.tgz'
+    DB_NAME = 'VOCSegmentation'
     def __init__(self, root, labeldir, mode, split='train', res1=320, res2=640, inv_list=[], eqv_list=[], \
-                 stuff=True, thing=False, scale=(0.5, 1), version=7, download=True):
+                 stuff=True, thing=False, scale=(0.5, 1), version=7, download=False):
         self.root  = root 
         self.split = split
         self.res1  = res1
@@ -64,7 +65,7 @@ class TrainPASCAL(data.Dataset):
 
     def load_imdb(self):
         
-        path_to_train = os.path.join(self.root, 'sets', '{}.txt'.format(self.split))
+        path_to_train = os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split))
 
         with open(path_to_train, 'r') as f:
             imdb = f.read().splitlines()
@@ -90,7 +91,7 @@ class TrainPASCAL(data.Dataset):
         Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
         """
 
-        image_path = os.path.join(self.root, 'images', '{}.jpg'.format(str(image_id))) 
+        image_path = os.path.join(self.root, self.DB_NAME, 'images', '{}.jpg'.format(str(image_id))) 
 
         return Image.open(image_path).convert('RGB')
 

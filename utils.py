@@ -143,10 +143,11 @@ def freeze_all(model):
         param.requires_grad = False 
 
 
-def initialize_classifier(args):
+def initialize_classifier(args, device):
     classifier = get_linear(args.in_dim, args.K_train)
     classifier = nn.DataParallel(classifier)
-    classifier = classifier.cuda()
+    # classifier = classifier.cuda()
+    classifier = classifier.to(device)
 
     return classifier
 

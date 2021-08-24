@@ -3,6 +3,7 @@ import os
 import time as t
 import numpy as np
 import torch
+from torch._C import device
 import torch.nn as nn
 import torch.nn.functional as F
 from data.pascal_train_dataset import TrainPASCAL
@@ -76,7 +77,7 @@ def parse_arguments():
 
 
 
-def train(args, logger, dataloader, model, classifier1, classifier2, criterion1, criterion2, optimizer, epoch):
+def train(args, logger, dataloader, model, classifier1, classifier2, criterion1, criterion2, optimizer, epoch, device):
     losses = AverageMeter()
     losses_mse = AverageMeter()
     losses_cet = AverageMeter()
@@ -86,17 +87,20 @@ def train(args, logger, dataloader, model, classifier1, classifier2, criterion1,
     # switch to train mode
     model.train()
     if args.mse:
-        criterion_mse = torch.nn.MSELoss().cuda()
+        criterion_mse = torch.nn.MSELoss().to(device)
 
     classifier1.eval()
     classifier2.eval()
     for i, (indice, input1, input2, label1, label2) in enumerate(dataloader):
-        input1 = eqv_transform_if_needed(args, dataloader, indice, input1.cuda(non_blocking=True))
-        label1 = label1.cuda(non_blocking=True)
+        input1 = eqv_transform_if_needed(args, dataloader, indice, input1.to(device))
+        # label1 = label1.cuda(non_blocking=True)
+        label1 = label1.to(device)
         featmap1 = model(input1)
         
-        input2 = input2.cuda(non_blocking=True)
-        label2 = label2.cuda(non_blocking=True)
+        # input2 = input2.cuda(non_blocking=True)
+        # label2 = label2.cuda(non_blocking=True)
+        input2 = input2.to(device)
+        label2 = label2.to(device)
         featmap2 = eqv_transform_if_needed(args, dataloader, indice, model(input2))
 
         B, C, _ = featmap1.size()[:3]
@@ -169,14 +173,17 @@ def main(args, logger):
     # Start time.
     t_start = t.time()
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # Get model and optimizer.
-    model, optimizer, classifier1 = get_model_and_optimizer(args, logger)
+    model, optimizer, classifier1 = get_model_and_optimizer(args, logger, device)
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
     trainset = TrainPASCAL(args.data_root, res1=args.res1, res2=args.res2,\
                         split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list, \
                         thing=args.thing, stuff=args.stuff, scale=(args.min_scale, 1)) # NOTE: For now, max_scale = 1.  
+    
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=False, 
@@ -195,7 +202,7 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed))
     
     # Before train.
-    _, _ = evaluate(args, logger, testloader, classifier1, model)
+    _, _ = evaluate(args, logger, testloader, classifier1, model, device=device)
     
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
@@ -206,23 +213,23 @@ def main(args, logger):
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start computing centroids.')
         t1 = t.time()
-        centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=1)
-        centroids2, kmloss2 = run_mini_batch_kmeans(args, logger, trainloader, model, view=2)
+        centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=1, device=device)
+        centroids2, kmloss2 = run_mini_batch_kmeans(args, logger, trainloader, model, view=2, device=device)
         logger.info('-Centroids ready. [Loss: {:.5f}| {:.5f}/ Time: {}]\n'.format(kmloss1, kmloss2, get_datetime(int(t.time())-int(t1))))
         
         # Compute cluster assignment. 
         t2 = t.time()
-        weight1 = compute_labels(args, logger, trainloader, model, centroids1, view=1)
-        weight2 = compute_labels(args, logger, trainloader, model, centroids2, view=2)
+        weight1 = compute_labels(args, logger, trainloader, model, centroids1, view=1, device=device)
+        weight2 = compute_labels(args, logger, trainloader, model, centroids2, view=2, device=device)
         logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
         
         # Criterion.
         if not args.no_balance:
-            criterion1 = torch.nn.CrossEntropyLoss(weight=weight1).cuda()
-            criterion2 = torch.nn.CrossEntropyLoss(weight=weight2).cuda()
+            criterion1 = torch.nn.CrossEntropyLoss(weight=weight1).to(device)
+            criterion2 = torch.nn.CrossEntropyLoss(weight=weight2).to(device)
         else:
-            criterion1 = torch.nn.CrossEntropyLoss().cuda()
-            criterion2 = torch.nn.CrossEntropyLoss().cuda()
+            criterion1 = torch.nn.CrossEntropyLoss().to(device)
+            criterion2 = torch.nn.CrossEntropyLoss().to(device)
 
         # Setup nonparametric classifier.
         classifier1 = initialize_classifier(args)
@@ -248,9 +255,9 @@ def main(args, logger):
                                                         worker_init_fn=worker_init_fn(args.seed))
 
         logger.info('Start training ...')
-        train_loss, train_cet, cet_within, cet_across, train_mse = train(args, logger, trainloader_loop, model, classifier1, classifier2, criterion1, criterion2, optimizer, epoch) 
-        acc1, res1 = evaluate(args, logger, testloader, classifier1, model)
-        acc2, res2 = evaluate(args, logger, testloader, classifier2, model)
+        train_loss, train_cet, cet_within, cet_across, train_mse = train(args, logger, trainloader_loop, model, classifier1, classifier2, criterion1, criterion2, optimizer, epoch, device=device) 
+        acc1, res1 = evaluate(args, logger, testloader, classifier1, model, device)
+        acc2, res2 = evaluate(args, logger, testloader, classifier2, model, device)
         
         logger.info('============== Epoch [{}] =============='.format(epoch))
         logger.info('  Time: [{}]'.format(get_datetime(int(t.time())-int(t1))))
@@ -307,18 +314,18 @@ def main(args, logger):
     if args.repeats > 0:
         for _ in range(args.repeats):
             t1 = t.time()
-            centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=-1)
+            centroids1, kmloss1 = run_mini_batch_kmeans(args, logger, trainloader, model, view=-1, device=device)
             logger.info('-Centroids ready. [Loss: {:.5f}/ Time: {}]\n'.format(kmloss1, get_datetime(int(t.time())-int(t1))))
             
             classifier1 = initialize_classifier(args)
             classifier1.module.weight.data = centroids1.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier1)
             
-            acc_new, res_new = evaluate(args, logger, testloader, classifier1, model)
+            acc_new, res_new = evaluate(args, logger, testloader, classifier1, model, device)
             acc_list_new.append(acc_new)
             res_list_new.append(res_new)
     else:
-        acc_new, res_new = evaluate(args, logger, testloader, classifier1, model)
+        acc_new, res_new = evaluate(args, logger, testloader, classifier1, model, device)
         acc_list_new.append(acc_new)
         res_list_new.append(res_new)
 
