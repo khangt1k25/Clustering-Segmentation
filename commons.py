@@ -49,6 +49,26 @@ def get_model_and_optimizer(args, logger, device):
 
 
 
+def get_model(args, logger, device):
+    # Init model 
+    model = fpn.PanopticFPN(args)
+    model = nn.DataParallel(model)
+    model = model.to(device)
+    
+    return model
+
+
+def get_optimizer(args, logger, parameters):
+    # Init optimizer 
+    if args.optim_type == 'SGD':
+        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, parameters), lr=args.lr, \
+                                    momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.optim_type == 'Adam':
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, parameters), lr=args.lr)
+    
+    return optimizer
+
+
 def run_mini_batch_kmeans(args, logger, dataloader, model, view, device):
     """
     num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
@@ -148,7 +168,7 @@ def compute_labels(args, logger, dataloader, model, centroids, view, device):
     dataloader.dataset.view = view
 
     # Define metric function with conv layer. 
-    metric_function = get_metric_as_conv(centroids)
+    metric_function = get_metric_as_conv(centroids, device)
 
     counts = torch.zeros(K, requires_grad=False).cpu()
     model.eval()
@@ -182,14 +202,14 @@ def compute_labels(args, logger, dataloader, model, centroids, view, device):
             if (i % 200) == 0:
                 logger.info('[Assigning labels] {} / {}'.format(i, len(dataloader)))
     weight = counts / counts.sum()
-
+        
     return weight
 
 
 def evaluate(args, logger, dataloader, classifier, model, device):
     logger.info('====== METRIC TEST : {} ======\n'.format(args.metric_test))
     histogram = np.zeros((args.K_test, args.K_test))
-
+        
     model.eval()
     classifier.eval()
     with torch.no_grad():
@@ -219,7 +239,7 @@ def evaluate(args, logger, dataloader, classifier, model, device):
     
     # Hungarian Matching. 
     m = linear_assignment(histogram.max() - histogram)
-
+    
     # Evaluate. 
     acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
 
@@ -234,11 +254,11 @@ def evaluate(args, logger, dataloader, classifier, model, device):
 
     # For Table 2 - partitioned evaluation.
     if args.thing and args.stuff:
-        res2 = get_result_metrics(new_hist[:12, :12])
+        res2 = get_result_metrics(new_hist[1:, 1:])
         logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
         logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
 
-        res3 = get_result_metrics(new_hist[12:, 12:])
+        res3 = get_result_metrics(new_hist[:1, :1])
         logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
         logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
     

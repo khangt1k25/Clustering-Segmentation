@@ -106,7 +106,7 @@ def get_result_metrics(histogram):
     iou = tp / (tp + fp + fn)
     prc = tp / (tp + fn) 
     opc = np.sum(tp) / np.sum(histogram)
-
+    
     result = {"iou": iou,
              "mean_iou": np.nanmean(iou),
              "precision_per_class (per class accuracy)": prc,
@@ -121,16 +121,17 @@ def compute_negative_euclidean(featmap, centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
     return - (1 - 2*metric_function(featmap)\
                 + (centroids*centroids).sum(dim=1).unsqueeze(0)) # negative l2 squared 
+        
 
-
-def get_metric_as_conv(centroids):
+def get_metric_as_conv(centroids, device):
     N, C = centroids.size()
 
     centroids_weight = centroids.unsqueeze(-1).unsqueeze(-1)
     metric_function  = nn.Conv2d(C, N, 1, padding=0, stride=1, bias=False)
     metric_function.weight.data = centroids_weight
     metric_function = nn.DataParallel(metric_function)
-    metric_function = metric_function.cuda()
+    # metric_function = metric_function.cuda()
+    metric_function = metric_function.to(device)
     
     return metric_function
 

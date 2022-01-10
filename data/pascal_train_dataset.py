@@ -71,7 +71,6 @@ class TrainPASCAL(data.Dataset):
             imdb = f.read().splitlines()
         return imdb
 
-    
 
     def __getitem__(self, index):
         
@@ -162,6 +161,7 @@ class TrainPASCAL(data.Dataset):
 
 
     def transform_eqv(self, indice, image):
+        
         if 'random_crop' in self.eqv_list:
             image = self.random_resized_crop(indice, image)
         if 'h_flip' in self.eqv_list:

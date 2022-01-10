@@ -108,13 +108,15 @@ class EvalPASCAL(data.Dataset):
         # # label = self.fine_to_coarse(label)    # Map to superclass indexing.
         # mask  = label >= 255 # Exclude unlabelled.
         
+
+
         # # Start from zero. 
         # if self.stuff and not self.thing:
         #     label[mask] -= 12 # This makes all Things categories negative (ignored.)
         # elif self.thing and not self.stuff:
         #     mask = label > 11 # This makes all Stuff categories negative (ignored.)
         #     label[mask] = -1
-            
+        
         # Tensor-fy
         label = torch.LongTensor(label)                            
 
@@ -141,13 +143,9 @@ class EvalPASCAL(data.Dataset):
         
         # Base transformation
         trans_list += [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
-
+        
         return transforms.Compose(trans_list)
     
     def __len__(self):
         return len(self.imdb)
-        
 
-  
-            
-       

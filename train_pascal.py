@@ -209,7 +209,7 @@ def main(args, logger):
         # Assign probs. 
         trainloader.dataset.mode = 'compute'
         trainloader.dataset.reshuffle()
-
+        
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start computing centroids.')
         t1 = t.time()
