@@ -6,9 +6,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from data.coco_train_dataset import TrainCOCO
-from data.coco_eval_dataset import EvalCOCO 
+from data.pascal_train_dataset import TrainPASCAL
+from data.pascal_eval_dataset import EvalPASCAL
 from utils import *
 from commons import *
 from modules import fpn 
@@ -133,10 +132,9 @@ def main(args, logger):
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    trainset = TrainCOCO(args.data_root, res1=args.res1, res2=args.res2,\
-                        split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list, stuff=args.stuff,\
-                        thing=args.thing,\
-                        scale=(args.min_scale, 1)) # NOTE: For now, max_scale = 1.  
+    trainset = TrainPASCAL(args.data_root, res1=args.res1, res2=args.res2,\
+                        split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list, \
+                        thing=args.thing, stuff=args.stuff, scale=(args.min_scale, 1)) # NOTE: For now, max_scale = 1.  
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -145,7 +143,7 @@ def main(args, logger):
                                                 collate_fn=collate_train_baseline,
                                                 worker_init_fn=worker_init_fn(args.seed))
 
-    testset    = EvalCOCO(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -230,17 +228,16 @@ def main(args, logger):
                     os.path.join(args.save_model_path, 'checkpoint.pth.tar'))
     
     # Evaluate.
-    trainset    = TrainCOCO(args.data_root, res=args.res, split=args.val_type, mode='test', label=False) 
+    trainset    = EvalPASCAL(args.data_root, res=args.res, split=args.val_type, mode='test', label=False) 
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True,
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
-                                                collate_fn=collate_train_baseline,
-                                                worker_init_fn=worker_init_fn(args.seed)
-                                                )
+                                                collate_fn=collate_train,
+                                                worker_init_fn=worker_init_fn(args.seed))
 
-    testset    = EvalCOCO(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
     testloader = torch.utils.data.DataLoader(testset, 
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -248,6 +245,7 @@ def main(args, logger):
                                              pin_memory=True,
                                              collate_fn=collate_eval,
                                              worker_init_fn=worker_init_fn(args.seed))
+                                             
     # Evaluate with fresh clusters. 
     acc_list_new = []  
     res_list_new = []                 

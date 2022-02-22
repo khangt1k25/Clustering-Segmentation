@@ -8,12 +8,11 @@ KM_ITER=20
 SEED=1
 LR=1e-4
 
-mkdir -p results/picie/train/${SEED}
+mkdir -p results/mdc/train/${SEED}
 
-python train_pascal.py \
+python train_mdc_pascal.py \
 --data_root PASCAL_VOC \
 --save_root results/pascal/train/${SEED} \
---arch resnet50
 --pretrain \
 --repeats 1 \
 --lr ${LR} \
@@ -23,7 +22,7 @@ python train_pascal.py \
 --kmeans_n_iter ${KM_ITER} \
 --K_train ${K_train} --K_test ${K_test} \
 --stuff --thing  \
---batch_size_cluster ${bsize} \
+--batch_size_cluster ${bsize}  \
 --num_epoch ${num_epoch} \
 --res 224 --res1 224 --res2 448 \
 --augment --jitter --blur --grey --equiv --random_crop --h_flip 
