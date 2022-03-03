@@ -74,46 +74,36 @@ def parse_arguments():
     return parser.parse_args()
 
 
-
-def train(args, logger, dataloader, model, classifier, criterion, optimizer, optimizer_loop):
+def train(args, logger, dataloader, model, classifier, optimizer, device, epoch):
     losses = AverageMeter()
-
-    # switch to train mode
+    contrastive_losses = AverageMeter()
+    saliency_losses = AverageMeter()
+    progress = ProgressMeter(len(dataloader), 
+                        [losses, contrastive_losses , saliency_losses],
+                        prefix="Epoch: [{}]".format(epoch))
+    criterion = nn.CrossEntropyLoss()
     model.train()
-    classifier.train(not args.nonparametric)
-    for i, (indice, image, label) in enumerate(dataloader):
-        image = eqv_transform_if_needed(args, dataloader, indice, image.cuda(non_blocking=True))
-        label = label.cuda(non_blocking=True)
-        feats = model(image)
 
-        B, C, _ = feats.shape[:3]
-        if i == 0:
-            logger.info('Batch input size   : {}'.format(list(image.shape)))
-            logger.info('Batch label size   : {}'.format(list(label.shape)))
-            logger.info('Batch feature size : {}\n'.format(list(feats.shape)))
-        
-        if args.metric_train == 'cosine':
-            feats = F.normalize(feats, dim=1, p=2)
-        
-        # 2. Get scores.
-        output = feature_flatten(classifier(feats))
-        label  = label.flatten()
-        loss   = criterion(output, label)
-        
-        # record loss
-        losses.update(loss.item(), B)
+    
+    for i_batch, (indice, img_q, sal_q, img_k, sal_k) in enumerate(dataloader):
+        img_q, sal_q, img_k, sal_k = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device)
 
-        # compute gradient and do step
+        logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier)
+
+        contrastive_loss = criterion(logits, labels,
+                                            reduction='mean')
+        loss = contrastive_loss + saliency_loss 
+        
+        contrastive_losses.update(contrastive_loss.item())
+        saliency_losses.update(saliency_loss.item())
+        losses.update(loss.item())
+        
         optimizer.zero_grad()
-        if not args.nonparametric:
-            optimizer_loop.zero_grad()
         loss.backward()
         optimizer.step()
-        if not args.nonparametric:
-            optimizer_loop.step()
-
-        if (i % 200) == 0:
-            logger.info('{0} / {1}\t'.format(i, len(dataloader)))
+        # Display progress
+        if i_batch % 25 == 0:
+            progress.display(i_batch)
 
     return losses.avg
 
@@ -140,7 +130,7 @@ def main(args, logger):
                                                 shuffle=True, 
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
-                                                collate_fn=collate_train_baseline,
+                                                # collate_fn=collate_train_baseline,
                                                 worker_init_fn=worker_init_fn(args.seed))
 
     testset    = EvalPASCAL(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
@@ -155,53 +145,34 @@ def main(args, logger):
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
         # Assign probs. 
-        trainloader.dataset.mode = 'compute'
-        trainloader.dataset.reshuffle()
-
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start computing centroids.')
         t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, view=1, device=device)
+        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device)
         logger.info('-Centroids ready. [{}]\n'.format(get_datetime(int(t.time())-int(t1))))
         
         # Compute cluster assignment. 
-        t2 = t.time()
-        weight = compute_labels(args, logger, trainloader, model, centroids, view=1, device=device) 
-        logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
+        # t2 = t.time()
+        # weight = compute_labels(args, logger, trainloader, model, centroids, device=device) 
+        # logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         # Criterion. 
-        criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
+        # criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
+        # criterion = torch.nn.CrossEntropyLoss().to(device)
+
+        
+
 
         # Set nonparametric classifier.
-        classifier = initialize_classifier(args, device=device)
-        if args.nonparametric:
-            classifier.module.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
-            freeze_all(classifier)
-
-        if args.nonparametric:
-            optimizer_loop = None 
-        else:
-            if args.optim_type == 'SGD':
-                optimizer_loop = torch.optim.SGD(filter(lambda x: x.requires_grad, classifier.module.parameters()), lr=args.lr, \
-                                                  momentum=args.momentum, weight_decay=args.weight_decay)
-            elif args.optim_type == 'Adam':
-                optimizer_loop = torch.optim.Adam(filter(lambda x: x.requires_grad, classifier.module.parameters()), lr=args.lr)
-
-
-        # Set-up train loader.
-        trainset.mode  = 'baseline_train'
-        trainset.labeldir = args.save_model_path
-        trainloader_loop  = torch.utils.data.DataLoader(trainset, 
-                                                        batch_size=args.batch_size_train, 
-                                                        shuffle=True,
-                                                        num_workers=args.num_workers,
-                                                        pin_memory=True,
-                                                        collate_fn=collate_train_baseline,
-                                                        worker_init_fn=worker_init_fn(args.seed)
-                                                        )
-
+        classifier = initialize_classifier(args)
+        classifier = classifier.to(device)
+        classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
+        freeze_all(classifier)
+        optimizer_loop = None  
         logger.info('Start training ...')
-        train_loss = train(args, logger, trainloader_loop, model, classifier, criterion, optimizer, optimizer_loop) 
+        
+        train_loss = train(args, logger, trainloader, model, classifier, optimizer) 
+        
         acc, res   = evaluate(args, logger, testloader, classifier, model)
 
         logger.info('========== Epoch [{}] =========='.format(epoch))

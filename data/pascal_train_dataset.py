@@ -9,10 +9,27 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-# from data.custom_transforms import *
-from custom_transforms import *
-# from data.utils import *  
+from data.custom_transforms import *
+# from custom_transforms import *
+from data.utils import *  
 
+# def collate_eval(batch):
+#     indice = [b[0] for b in batch]
+#     image = torch.stack([b[1] for b in batch])
+#     label = torch.stack([b[2] for b in batch])
+
+#     return indice, image, label 
+
+# def collate_train_baseline(batch):
+#     if batch[0][-1] is not None:
+#         return collate_eval(batch)
+    
+#     indice = [b[0] for b in batch]
+#     image  = torch.stack([b[1] for b in batch])
+    
+#     return indice, image
+# def worker_init_fn(seed):
+#     return lambda x: np.random.seed(seed + x)
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
@@ -113,7 +130,7 @@ class TrainPASCAL(data.Dataset):
         if ver == 0: # Apply for just query
             image, sal = self.transform_eqv(index, image, sal)
         
-        image = self.transform_tensor(image)
+        image, sal = self.transform_tensor(image, sal)
         
         return image, sal 
 
@@ -215,10 +232,27 @@ if __name__ == '__main__':
     inv_list = ['brightness', 'contrast', 'saturation', 'hue']
     eqv_list = ['h_flip', 'v_flip']
     trainset = TrainPASCAL('/home/khangt1k25/Code/Clustering-Segmentation/PASCAL_VOC', res=224, \
-                        split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
+                        split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
     
-    i, img1, sal1, img2, sal2 = trainset[0]
-    img1.show()
-    sal1.show()
+
+    indice, img1, sal1, img2, sal2 = trainset[0]
+    trainloader = torch.utils.data.DataLoader(trainset, 
+                                                batch_size=32,
+                                                shuffle=True, 
+                                                num_workers=2,
+                                                pin_memory=True,
+                                                # collate_fn=collate_train_baseline,
+                                                worker_init_fn=worker_init_fn(2022))
+    
+    for i_batch, (indice, img1, sal1, img2, sal2) in enumerate(trainloader):
+        print(indice.shape)
+        print(indice)
+        print(img1.shape)
+        print(sal1.shape)
+        print(img2.shape)
+        print(sal2.shape)
+        break
+    # img1.show()
+    # sal1.show()
     # img2.show()
     # sal2.show()

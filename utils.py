@@ -117,8 +117,12 @@ def get_result_metrics(histogram):
 
     return result
 
-def compute_negative_euclidean(featmap, centroids, metric_function):
+def compute_negative_euclidean(featmap, sal,  centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
+    feats = metric_function(featmap) # Bx Cx H x W
+    feats = feats * sal.unsqueeze(1) 
+
+
     return - (1 - 2*metric_function(featmap)\
                 + (centroids*centroids).sum(dim=1).unsqueeze(0)) # negative l2 squared 
         
@@ -144,11 +148,8 @@ def freeze_all(model):
         param.requires_grad = False 
 
 
-def initialize_classifier(args, device):
+def initialize_classifier(args):
     classifier = get_linear(args.in_dim, args.K_train)
-    
-    classifier = classifier.to(device)
-
     return classifier
 
 def get_linear(indim, outdim):
@@ -223,13 +224,14 @@ def worker_init_fn(seed):
 #                               Training Pipelines                             #
 ################################################################################
 
-def postprocess_label(args, K, idx, idx_img, scores, n_dual):
+def postprocess_label(K, idx, scores):
     out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
 
-    # Save labels. 
-    if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(n_dual))):
-        os.makedirs(os.path.join(args.save_model_path, 'label_' + str(n_dual)))
-    torch.save(out, os.path.join(args.save_model_path, 'label_' + str(n_dual), '{}.pkl'.format(idx_img)))
+    # # We do not use
+    # # Save labels.
+    # if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(n_dual))):
+    #     os.makedirs(os.path.join(args.save_model_path, 'label_' + str(n_dual)))
+    # torch.save(out, os.path.join(args.save_model_path, 'label_' + str(n_dual), '{}.pkl'.format(idx_img)))
     
     # Count for re-weighting. 
     counts = torch.tensor(np.bincount(out, minlength=K)).float()
@@ -293,5 +295,21 @@ def collate_train_baseline(batch):
     
     indice = [b[0] for b in batch]
     image  = torch.stack([b[1] for b in batch])
-    
+
     return indice, image
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'

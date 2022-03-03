@@ -73,11 +73,12 @@ class TensorTransform(object):
         self.to_tensor = transforms.ToTensor()
         self.normalize = transforms.Normalize(mean=mean, std=std)
         
-    def __call__(self, image):
+    def __call__(self, image, sal):
         image = self.to_tensor(image)
+        sal = self.to_tensor(sal)
         image = self.normalize(image)
     
-        return image
+        return image, sal
         
         
 class RandomGaussianBlur(object):
