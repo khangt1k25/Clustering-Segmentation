@@ -3,7 +3,8 @@ import numpy as np
 import torch 
 import torch.nn as nn 
 
-from sklearn.utils.linear_assignment_ import linear_assignment
+from scipy.optimize import linear_sum_assignment as linear_assignment
+
 from modules import fpn 
 from utils import *
 
@@ -13,20 +14,15 @@ warnings.filterwarnings('ignore')
 def get_model_and_optimizer(args, logger, device):
     # Init model 
     model = fpn.PanopticFPN(args)
-    model = nn.DataParallel(model)
-    # model = model.cuda()
     model = model.to(device)
-
-
-    # Init classifier (for eval only.)
     classifier = initialize_classifier(args, device)
 
     # Init optimizer 
     if args.optim_type == 'SGD':
-        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.module.parameters()), lr=args.lr, \
+        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, \
                                     momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.optim_type == 'Adam':
-        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.module.parameters()), lr=args.lr)
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr)
 
     # optional restart. 
     args.start_epoch  = 0 
@@ -52,7 +48,6 @@ def get_model_and_optimizer(args, logger, device):
 def get_model(args, logger, device):
     # Init model 
     model = fpn.PanopticFPN(args)
-    model = nn.DataParallel(model)
     model = model.to(device)
     
     return model
@@ -75,7 +70,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, view, device):
     num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
     """
     kmeans_loss  = AverageMeter()
-    # faiss_module = get_faiss_module(args)
+    faiss_module = get_faiss_module(args)
     data_count   = np.zeros(args.K_train)
     featslist    = []
     num_batches  = 0
@@ -92,12 +87,10 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, view, device):
                 image = eqv_transform_if_needed(args, dataloader, indice, image.to(device))
                 feats = model(image)
             elif view == 2:
-                # image = image.cuda(non_blocking=True)
                 image = image.to(device)
                 feats = eqv_transform_if_needed(args, dataloader, indice, model(image))
             else:
                 # For evaluation. 
-                # image = image.cuda(non_blocking=True)
                 image = image.to(device)
                 feats = model(image)
 

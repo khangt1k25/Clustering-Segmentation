@@ -1,4 +1,5 @@
 import argparse
+from operator import inv
 import os
 import time as t
 import numpy as np
@@ -126,15 +127,14 @@ def main(args, logger):
 
     # Start time.
     t_start = t.time()
+    device = torch.device('cuda' if torch.cuda.is_available() else'cpu' )
 
     # Get model and optimizer.
-    model, optimizer, classifier = get_model_and_optimizer(args, logger)
+    model, optimizer, classifier = get_model_and_optimizer(args, logger, device)
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    trainset = TrainPASCAL(args.data_root, res1=args.res1, res2=args.res2,\
-                        split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list, \
-                        thing=args.thing, stuff=args.stuff, scale=(args.min_scale, 1)) # NOTE: For now, max_scale = 1.  
+    trainset = TrainPASCAL(args.data_root, res=args.res, split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -161,19 +161,19 @@ def main(args, logger):
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start computing centroids.')
         t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, view=1)
+        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, view=1, device=device)
         logger.info('-Centroids ready. [{}]\n'.format(get_datetime(int(t.time())-int(t1))))
         
         # Compute cluster assignment. 
         t2 = t.time()
-        weight = compute_labels(args, logger, trainloader, model, centroids, view=1) 
+        weight = compute_labels(args, logger, trainloader, model, centroids, view=1, device=device) 
         logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         # Criterion. 
         criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
 
         # Set nonparametric classifier.
-        classifier = initialize_classifier(args)
+        classifier = initialize_classifier(args, device=device)
         if args.nonparametric:
             classifier.module.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier)

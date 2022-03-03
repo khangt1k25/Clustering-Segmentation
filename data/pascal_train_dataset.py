@@ -1,3 +1,4 @@
+from json.tool import main
 import os
 import tarfile 
 import torch 
@@ -8,37 +9,48 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-from data.custom_transforms import *
-from data.utils import *  
+# from data.custom_transforms import *
+from custom_transforms import *
+# from data.utils import *  
 
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
     FILE = 'PASCAL_VOC.tgz'
     DB_NAME = 'VOCSegmentation'
-    def __init__(self, root, labeldir, mode, split='train', res1=320, res2=640, inv_list=[], eqv_list=[], \
-                 stuff=True, thing=False, scale=(0.5, 1), version=7, download=False):
+    def __init__(self, root, split='train', res=224, inv_list=[], eqv_list=[], \
+        download=False):
+        
         self.root  = root 
         self.split = split
-        self.res1  = res1
-        self.res2  = res2  
-        self.stuff = stuff 
-        self.thing = thing 
-        self.mode  = mode
-        self.scale = scale 
-        self.view  = -1
-
+        self.res = res
         self.inv_list = inv_list
         self.eqv_list = eqv_list
-        self.labeldir = labeldir
-
-        self.version  = version  # 7 is what we used. 
+  
         
         if download:
             self._download()
         
-        self.imdb = self.load_imdb()
-        self.reshuffle() 
+
+        with open(os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split)), 'r') as f:
+            lines = f.read().splitlines()
+        
+        # self.reshuffle()
+        _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
+        _sal_dir = os.path.join(self.root, self.DB_NAME, 'saliency_unsupervised_model')
+        self.images = []
+        self.sals = []
+        for ii, line in enumerate(lines):
+            _image = os.path.join(_image_dir, line + ".jpg")
+            _sal = os.path.join(_sal_dir, line + ".png")
+            if os.path.isfile(_image) and os.path.isfile(_sal):
+                self.images.append(_image)
+                self.sals.append(_sal)
+
+        assert(len(self.images) == len(self.sals))
+        
+        self.reshuffle()
+
 
     def _download(self):
         
@@ -63,48 +75,47 @@ class TrainPASCAL(data.Dataset):
         os.chdir(cwd)
         print('Done!')
 
-    def load_imdb(self):
-        
-        path_to_train = os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split))
-
-        with open(path_to_train, 'r') as f:
-            imdb = f.read().splitlines()
-        return imdb
-
-
-    def __getitem__(self, index):
-        
-        index = self.shuffled_indices[index]
-        imgid = self.imdb[index]
-
-        image = self.load_data(imgid)
-
-        image = self.transform_image(index, image)
-        label = self.transform_label(index)
-        
-        return (index, ) + image + label
-
-
-    def load_data(self, image_id):
-        """
-        Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
-        """
-
-        image_path = os.path.join(self.root, self.DB_NAME, 'images', '{}.jpg'.format(str(image_id))) 
-
-        return Image.open(image_path).convert('RGB')
-
-
     def reshuffle(self):
         """
         Generate random floats for all image data to deterministically random transform.
         This is to use random sampling but have the same samples during clustering and 
         training within the same epoch. 
         """
-        self.shuffled_indices = np.arange(len(self.imdb))
+        self.shuffled_indices = np.arange(len(self.images))
         np.random.shuffle(self.shuffled_indices)
-        self.init_transforms()
+        self.init_transforms() 
 
+    def load_sal(self, index):
+        return Image.open(self.sals[index])
+
+    def load_data(self, index):
+        """
+        Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
+        """
+        return Image.open(self.images[index]).convert('RGB')
+    
+    def __getitem__(self, index):
+        
+        index = self.shuffled_indices[index]
+        image = self.load_data(index)
+        sal = self.load_sal(index)
+
+        image, sal = self.transform_base(index, image, sal)
+
+        image_query, sal_query = self.transform_image_sal(index, image, sal, ver=0)
+        image_key, sal_key = self.transform_image_sal(index, image, sal, ver=1)
+        
+        return index, image_query, sal_query, image_key, sal_key
+
+    def transform_image_sal(self, index, image, sal, ver):
+
+        image = self.transform_inv(index, image, ver=ver)
+        if ver == 0: # Apply for just query
+            image, sal = self.transform_eqv(index, image, sal)
+        
+        image = self.transform_tensor(image)
+        
+        return image, sal 
 
     def transform_image(self, index, image):
         # Base transform
@@ -137,7 +148,7 @@ class TrainPASCAL(data.Dataset):
         else:
             raise ValueError('Mode [{}] is an invalid option.'.format(self.mode))
 
-
+    
     def transform_inv(self, index, image, ver):
         """
         Hyperparameters same as MoCo v2. 
@@ -159,24 +170,20 @@ class TrainPASCAL(data.Dataset):
         return image
 
 
-
-    def transform_eqv(self, indice, image):
+    def transform_eqv(self, index, image, sal):
         
-        if 'random_crop' in self.eqv_list:
-            image = self.random_resized_crop(indice, image)
         if 'h_flip' in self.eqv_list:
-            image = self.random_horizontal_flip(indice, image)
+            image, sal  = self.random_horizontal_flip(index, image, sal)
         if 'v_flip' in self.eqv_list:
-            image = self.random_vertical_flip(indice, image)
+            image, sal = self.random_vertical_flip(index, image, sal)
 
-        return image
+        return image, sal
 
 
     def init_transforms(self):
-        N = len(self.imdb)
-        
+        N = len(self.images)
         # Base transform.
-        self.transform_base = BaseTransform(self.res2)
+        self.transform_base = BaseTransform(self.res)
         
         # Transforms for invariance. 
         # Color jitter (4), gray scale, blur. 
@@ -186,48 +193,32 @@ class TrainPASCAL(data.Dataset):
         self.random_color_hue        = [RandomColorHue(x=0.1, p=0.8, N=N) for _ in range(2)]      # Control this later (NOTE)
         self.random_gray_scale    = [RandomGrayScale(p=0.2, N=N) for _ in range(2)]
         self.random_gaussian_blur = [RandomGaussianBlur(sigma=[.1, 2.], p=0.5, N=N) for _ in range(2)]
-
+        
+        # Transforms for equivariance
         self.random_horizontal_flip = RandomHorizontalTensorFlip(N=N)
         self.random_vertical_flip   = RandomVerticalFlip(N=N)
-        self.random_resized_crop    = RandomResizedCrop(N=N, res=self.res1, scale=self.scale)
 
-        # Tensor transform. 
-        self.transform_tensor = TensorTransform()
+        # Tensor and normalize transform. 
+        self.transform_tensor = TensorTransform(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
-
-    def transform_label(self, index):
-        # TODO Equiv. transform.
-        if self.mode == 'train':
-            label1 = torch.load(os.path.join(self.labeldir, 'label_1', '{}.pkl'.format(index)))
-            label2 = torch.load(os.path.join(self.labeldir, 'label_2', '{}.pkl'.format(index)))
-            label1 = torch.LongTensor(label1)
-            label2 = torch.LongTensor(label2)
-
-            X1 = int(np.sqrt(label1.shape[0]))
-            X2 = int(np.sqrt(label2.shape[0]))
-            
-            label1 = label1.view(X1, X1)
-            label2 = label2.view(X2, X2)
-
-            return label1, label2
-
-        elif self.mode == 'baseline_train':
-            label1 = torch.load(os.path.join(self.labeldir, 'label_1', '{}.pkl'.format(index)))
-            label1 = torch.LongTensor(label1)
-
-            X1 = int(np.sqrt(label1.shape[0]))
-            
-            label1 = label1.view(X1, X1)
-
-            return (label1, )
-
-        return (None, )
-
-
     def __len__(self):
-        return len(self.imdb)
+        return len(self.images)
+
+
+  
         
 
   
             
        
+if __name__ == '__main__':
+    inv_list = ['brightness', 'contrast', 'saturation', 'hue']
+    eqv_list = ['h_flip', 'v_flip']
+    trainset = TrainPASCAL('/home/khangt1k25/Code/Clustering-Segmentation/PASCAL_VOC', res=224, \
+                        split='train', mode='compute', labeldir='', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
+    
+    i, img1, sal1, img2, sal2 = trainset[0]
+    img1.show()
+    sal1.show()
+    # img2.show()
+    # sal2.show()

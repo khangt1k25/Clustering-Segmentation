@@ -140,14 +140,13 @@ def get_metric_as_conv(centroids, device):
 ################################################################################
 
 def freeze_all(model):
-    for param in model.module.parameters():
+    for param in model.parameters():
         param.requires_grad = False 
 
 
 def initialize_classifier(args, device):
     classifier = get_linear(args.in_dim, args.K_train)
-    classifier = nn.DataParallel(classifier)
-    # classifier = classifier.cuda()
+    
     classifier = classifier.to(device)
 
     return classifier
@@ -213,8 +212,9 @@ def fix_seed_for_reproducability(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
+    # cudnn.deterministic = True
+    # cudnn.benchmark = False
+    
 
 def worker_init_fn(seed):
     return lambda x: np.random.seed(seed + x)
@@ -293,5 +293,5 @@ def collate_train_baseline(batch):
     
     indice = [b[0] for b in batch]
     image  = torch.stack([b[1] for b in batch])
-
+    
     return indice, image
