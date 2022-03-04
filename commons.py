@@ -71,7 +71,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device):
     num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
     num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
     """
-    kmeans_loss  = AverageMeter('kmloss')
+    kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
     data_count   = np.zeros(args.K_train)
     featslist    = []
@@ -197,8 +197,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     return weight
 
 
-def evaluate(args, logger, dataloader, model, classifier, device, epoch):
-    logger.info('====== METRIC TEST : {} ======\n'.format(args.metric_test))
+def evaluate(args, logger, dataloader, model, classifier, device):
     histogram = np.zeros((args.K_test, args.K_test))
         
     model.eval()
@@ -244,8 +243,8 @@ def evaluate(args, logger, dataloader, model, classifier, device, epoch):
 
     # NOTE: Now [new_hist] is re-ordered to 12 thing + 15 stuff classses. 
     res1 = get_result_metrics(new_hist)
-    logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
-    logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
+    # logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
+    # logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
 
     # # For Table 2 - partitioned evaluation.
     # if args.thing and args.stuff:

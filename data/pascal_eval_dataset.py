@@ -111,7 +111,6 @@ class EvalPASCAL(data.Dataset):
         _image = Image.open(self.images[index]).convert('RGB')
         _sal = Image.open(self.sals[index])
         _semseg = Image.open(self.labels[index])
-        # _semseg = np.array(Image.open(self.labels[index]))
         return _image, _sal, _semseg
     
     def __getitem__(self, index):
@@ -120,8 +119,12 @@ class EvalPASCAL(data.Dataset):
         
         image, sal, label = self.load_data(index)
         image, sal, label = self.transform_data(image, sal, label)
+        
+        sal = sal.squeeze().long()
+        if len(sal.shape) == 3:
+            sal = sal[0]
 
-        return index, image, sal.squeeze().long(), label
+        return index, image, sal, label
 
    
     def transform_data(self, image, sal, label):

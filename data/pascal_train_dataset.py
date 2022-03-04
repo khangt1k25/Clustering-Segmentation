@@ -24,7 +24,7 @@ class TrainPASCAL(data.Dataset):
         self.res = res
         self.inv_list = inv_list
         self.eqv_list = eqv_list
-    
+  
         
         if download:
             self._download()
@@ -33,6 +33,8 @@ class TrainPASCAL(data.Dataset):
         with open(os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split)), 'r') as f:
             lines = f.read().splitlines()
         
+        print(len(lines))
+
         # self.reshuffle()
         _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
         _sal_dir = os.path.join(self.root, self.DB_NAME, 'saliency_unsupervised_model')
@@ -48,7 +50,7 @@ class TrainPASCAL(data.Dataset):
         assert(len(self.images) == len(self.sals))
         
         self.reshuffle()
-
+        print('Number of Images {}'.format(len(self.images)))
 
     def _download(self):
         
@@ -110,10 +112,12 @@ class TrainPASCAL(data.Dataset):
         image = self.transform_inv(index, image, ver=ver)
         if ver == 0: # Apply for just query
             image, sal = self.transform_eqv(index, image, sal)
-        
+          
         image, sal = self.transform_tensor(image, sal)
-        
-        return image, sal 
+        sal = sal.squeeze().long()
+        if len(sal.shape) == 3:
+            sal = sal[0]
+        return image, sal
 
     def transform_image(self, index, image):
         # Base transform

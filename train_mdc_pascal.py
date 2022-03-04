@@ -12,6 +12,7 @@ from data.pascal_eval_dataset import EvalPASCAL
 from utils import *
 from commons import *
 from modules import fpn 
+from torch.utils.tensorboard import SummaryWriter, writer 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -19,31 +20,25 @@ def parse_arguments():
     parser.add_argument('--save_root', type=str, required=True)
     parser.add_argument('--restart_path', type=str)
     parser.add_argument('--comment', type=str, default='')
-    parser.add_argument('--seed', type=int, default=2021, help='Random seed for reproducability.')
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers.')
-    parser.add_argument('--restart', action='store_true', default=False)
+    parser.add_argument('--seed', type=int, default=2022, help='Random seed for reproducability.')
+    parser.add_argument('--num_workers', type=int, default=2, help='Number of workers.')
+    parser.add_argument('--restart', action='store_true', default=True)
     parser.add_argument('--num_epoch', type=int, default=10) 
-    parser.add_argument('--repeats', type=int, default=10)  
+    parser.add_argument('--repeats', type=int, default=5)  
 
     # Train. 
-    parser.add_argument('--arch', type=str, default='resnet18')
-    parser.add_argument('--pretrain', action='store_true', default=False)
-    parser.add_argument('--res', type=int, default=320, help='Input size.')
-    parser.add_argument('--res1', type=int, default=320, help='Input size scale from.')
-    parser.add_argument('--res2', type=int, default=320, help='Input size scale to.')
-    parser.add_argument('--batch_size_cluster', type=int, default=128)
-    parser.add_argument('--batch_size_train', type=int, default=128)
-    parser.add_argument('--batch_size_test', type=int, default=128)
+    parser.add_argument('--res', type=int, default=224, help='Input size.')
+    parser.add_argument('--batch_size_cluster', type=int, default=32)
+    parser.add_argument('--batch_size_train', type=int, default=32)
+    parser.add_argument('--batch_size_test', type=int, default=32)
+
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=5e-4)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--optim_type', type=str, default='Adam')
-    parser.add_argument('--num_init_batches', type=int, default=30)
-    parser.add_argument('--num_batches', type=int, default=30)
+    parser.add_argument('--num_init_batches', type=int, default=64)
+    parser.add_argument('--num_batches', type=int, default=64)
     parser.add_argument('--kmeans_n_iter', type=int, default=30)
-    parser.add_argument('--in_dim', type=int, default=128)
-    parser.add_argument('--X', type=int, default=80)
-    parser.add_argument('--nonparametric', action='store_true', default=False)
 
     # additonal
     parser.add_argument('--pretraining', type=str, default='imagenet_classification')
@@ -51,17 +46,13 @@ def parse_arguments():
     parser.add_argument('--ndim', type=int, default=32)
 
     # Loss. 
-    parser.add_argument('--metric_train', type=str, default='cosine')   
-    parser.add_argument('--metric_test', type=str, default='cosine')
-    parser.add_argument('--K_train', type=int, default=1000) # COCO Stuff-15
-    parser.add_argument('--K_test', type=int, default=27) # COCO Stuff-15 / COCO Thing-12 / COCO All-27
+    parser.add_argument('--K_train', type=int, default=1000)
+    parser.add_argument('--K_test', type=int, default=20) 
 
     # Dataset. 
     parser.add_argument('--augment', action='store_true', default=False)
     parser.add_argument('--equiv', action='store_true', default=False)
     parser.add_argument('--min_scale', type=float, default=0.5)
-    parser.add_argument('--stuff', action='store_true', default=False)
-    parser.add_argument('--thing', action='store_true', default=False)
     parser.add_argument('--jitter', action='store_true', default=False)
     parser.add_argument('--grey', action='store_true', default=False)
     parser.add_argument('--blur', action='store_true', default=False)
@@ -69,8 +60,6 @@ def parse_arguments():
     parser.add_argument('--v_flip', action='store_true', default=False)
     parser.add_argument('--random_crop', action='store_true', default=False)
     parser.add_argument('--val_type', type=str, default='val')
-    parser.add_argument('--version', type=int, default=7)
-    parser.add_argument('--fullcoco', action='store_true', default=False)
     
     # Eval-only
     parser.add_argument('--eval_only', action='store_true', default=False)
@@ -79,16 +68,17 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def train(args, logger, dataloader, model, classifier, optimizer, device, epoch):
+def train(args, logger, dataloader, model, classifier, optimizer, device, epoch, kmloss):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
     saliency_losses = AverageMeter('Saliency Loss')
+
     progress = ProgressMeter(len(dataloader), 
                         [losses, contrastive_losses , saliency_losses],
                         prefix="Epoch: [{}]".format(epoch))
+    
     criterion = nn.CrossEntropyLoss(reduction='mean')
     model.train()
-    
     for i_batch, (indice, img_q, sal_q, img_k, sal_k) in enumerate(dataloader):
         img_q, sal_q, img_k, sal_k = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device)
 
@@ -107,6 +97,15 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch)
         # Display progress
         if i_batch % 25 == 0:
             progress.display(i_batch)
+
+    
+    writer_path = os.path.join(args.save_model_path, "runs")
+    writer = SummaryWriter(log_dir=writer_path)
+    writer.add_scalar('total loss', losses.avg, epoch)
+    writer.add_scalar('contrastive loss', contrastive_losses.avg, epoch)
+    writer.add_scalar('saliency loss', saliency_losses.avg, epoch)
+    writer.add_scalar('kmeans loss', kmloss, epoch)
+    writer.close()
 
     return losses.avg
 
@@ -127,7 +126,7 @@ def main(args, logger):
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    trainset = TrainPASCAL(args.data_root, res=args.res, split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
+    trainset = TrainPASCAL(args.data_root, res=args.res, split='trainaug', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -137,7 +136,7 @@ def main(args, logger):
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 drop_last=True)
 
-    testset    = EvalPASCAL(root='PASCAL_VOC', res=224, split='val', transform_list=['jitter', 'blur', 'grey'])
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -152,11 +151,13 @@ def main(args, logger):
     for epoch in range(args.start_epoch, args.num_epoch):
         # Assign probs. 
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
-        logger.info('Start computing centroids.')
+        logger.info('Start clustering ... \n')
         t1 = t.time()
         centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device)
-        logger.info('-Centroids ready. [{}]\n'.format(get_datetime(int(t.time())-int(t1))))
         
+        logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
+        
+        ## We do not use this
         # Compute cluster assignment. 
         # t2 = t.time()
         # weight = compute_labels(args, logger, trainloader, model, centroids, device=device) 
@@ -166,8 +167,6 @@ def main(args, logger):
         # criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
         # criterion = torch.nn.CrossEntropyLoss().to(device)
 
-        
-
 
         # Set nonparametric classifier.
         classifier = initialize_classifier(args)
@@ -175,19 +174,22 @@ def main(args, logger):
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
         
-        logger.info('Start training ...')
-        
-        train_loss = train(args, logger, trainloader, model, classifier, optimizer, device, epoch) 
-        
-        acc, res   = evaluate(args, logger, testloader, model, classifier, device, epoch)
+        logger.info('Start training ...\n')
+        t2 = t.time()
+        train_loss = train(args, logger, trainloader, model, classifier, optimizer, device, epoch, kmloss) 
+        logger.info('Finish training ...\n')
 
-        logger.info('========== Epoch [{}] =========='.format(epoch))
-        logger.info('  Time total : [{}].'.format(get_datetime(int(t.time())-int(t1))))
-        logger.info('  K-Means loss   : {:.5f}.'.format(kmloss))
-        logger.info('  Training loss  : {:.5f}.'.format(train_loss))
-        logger.info('  ACC: {:.4f} | mIoU: {:.4f}'.format(acc, res['mean_iou']))
-        logger.info('================================\n')
+        logger.info('Start evaluating ...\n')
+        acc, res   = evaluate(args, logger, testloader, model, classifier, device)
+        logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
+        logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
+        logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
+        logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
+        logger.info('  ACC: {:.4f} | mIoU: {:.4f}\n'.format(acc, res['mean_iou']))
+        logger.info('=================================================\n')
+        logger.info('Finish evaluating ...\n')
 
+        logger.info('Start checkpointing ...\n')
         torch.save({'epoch': epoch+1, 
                     'args' : args,
                     'state_dict': model.state_dict(),
@@ -203,44 +205,57 @@ def main(args, logger):
                     'optimizer' : optimizer.state_dict(),
                     },
                     os.path.join(args.save_model_path, 'checkpoint.pth.tar'))
-    
-    # Evaluate.
-    trainset    = EvalPASCAL(args.data_root, res=args.res, split=args.val_type, mode='test', label=False) 
-    trainloader = torch.utils.data.DataLoader(trainset, 
-                                                batch_size=args.batch_size_cluster,
-                                                shuffle=True,
-                                                num_workers=args.num_workers,
-                                                pin_memory=True,
-                                                collate_fn=collate_train,
-                                                worker_init_fn=worker_init_fn(args.seed))
+        logger.info('Finish checkpointing ...\n')
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
-    testloader = torch.utils.data.DataLoader(testset, 
-                                             batch_size=args.batch_size_test,
-                                             shuffle=False,
-                                             num_workers=args.num_workers,
-                                             pin_memory=True,
-                                             collate_fn=collate_eval,
-                                             worker_init_fn=worker_init_fn(args.seed))
-                                             
+        
+         
+
+    ## Evaluate.
+    # We do not use this 
+    # trainset    = EvalPASCAL(args.data_root, res=args.res, split='train')
+    # trainloader = torch.utils.data.DataLoader(trainset, 
+    #                                             batch_size=args.batch_size_cluster,
+    #                                             shuffle=True,
+    #                                             num_workers=args.num_workers,
+    #                                             pin_memory=True,
+    #                                             worker_init_fn=worker_init_fn(args.seed),
+    #                                             drop_last=True)
+
+    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val')
+    # testloader = torch.utils.data.DataLoader(testset, 
+    #                                          batch_size=args.batch_size_test,
+    #                                          shuffle=False,
+    #                                          num_workers=args.num_workers,
+    #                                          pin_memory=True,
+    #                                          worker_init_fn=worker_init_fn(args.seed),
+    #                                          drop_last=True)
+    
+                          
     # Evaluate with fresh clusters. 
     acc_list_new = []  
-    res_list_new = []                 
-    logger.info('Start computing centroids.')
+    res_list_new = []
+    logger.info('================================Start evaluating the LAST==============================\n')                 
     if args.repeats > 0:
-        for _ in range(args.repeats):
+        for r in range(args.repeats):
+            logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, view=-1)
-            logger.info('-Centroids ready. [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
+            logger.info('Start clustering \n')
+            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
+            logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
+
             classifier = initialize_classifier(args)
+            classifier = classifier.to(device)
             classifier.module.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier)
             
-            acc_new, res_new = evaluate(args, logger, testloader, classifier, model)
+            acc_new, res_new = evaluate(args, logger, testloader, model, classifier, device)
             acc_list_new.append(acc_new)
-            res_list_new.append(res_new)
+            res_list_new.append(res_new)     
+            logger.info('  ACC: {:.4f} | mIoU: {:.4f} \n'.format(acc_new, res_new['mean_iou']))
+            logger.info('============Finish Repeat Time {}============\n'.format(r)) 
     else:
+        logger.info('============ Using trained cluster============\n')
         acc_new, res_new = evaluate(args, logger, testloader, classifier, model)
         acc_list_new.append(acc_new)
         res_list_new.append(res_new)
@@ -248,6 +263,8 @@ def main(args, logger):
     logger.info('Average overall pixel accuracy [NEW] : {} +/- {}.'.format(round(np.mean(acc_list_new), 2), np.std(acc_list_new)))
     logger.info('Average mIoU [NEW] : {:.3f} +/- {:.3f}. '.format(np.mean([res['mean_iou'] for res in res_list_new]), 
                                                                   np.std([res['mean_iou'] for res in res_list_new])))
+    logger.info('================================Finish evaluating the LAST==============================\n')
+    
     logger.info('Experiment done. [{}]\n'.format(get_datetime(int(t.time())-int(t_start))))
     
 if __name__=='__main__':
