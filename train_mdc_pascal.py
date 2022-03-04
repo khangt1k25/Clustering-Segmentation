@@ -45,6 +45,11 @@ def parse_arguments():
     parser.add_argument('--X', type=int, default=80)
     parser.add_argument('--nonparametric', action='store_true', default=False)
 
+    # additonal
+    parser.add_argument('--pretraining', type=str, default='imagenet_classification')
+    parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
+    parser.add_argument('--ndim', type=int, default=32)
+
     # Loss. 
     parser.add_argument('--metric_train', type=str, default='cosine')   
     parser.add_argument('--metric_test', type=str, default='cosine')
@@ -75,23 +80,21 @@ def parse_arguments():
 
 
 def train(args, logger, dataloader, model, classifier, optimizer, device, epoch):
-    losses = AverageMeter()
-    contrastive_losses = AverageMeter()
-    saliency_losses = AverageMeter()
+    losses = AverageMeter('Total loss')
+    contrastive_losses = AverageMeter('Contrastive Loss')
+    saliency_losses = AverageMeter('Saliency Loss')
     progress = ProgressMeter(len(dataloader), 
                         [losses, contrastive_losses , saliency_losses],
                         prefix="Epoch: [{}]".format(epoch))
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction='mean')
     model.train()
-
     
     for i_batch, (indice, img_q, sal_q, img_k, sal_k) in enumerate(dataloader):
         img_q, sal_q, img_k, sal_k = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device)
 
         logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier)
 
-        contrastive_loss = criterion(logits, labels,
-                                            reduction='mean')
+        contrastive_loss = criterion(logits, labels)
         loss = contrastive_loss + saliency_loss 
         
         contrastive_losses.update(contrastive_loss.item())
@@ -131,16 +134,19 @@ def main(args, logger):
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
                                                 # collate_fn=collate_train_baseline,
-                                                worker_init_fn=worker_init_fn(args.seed))
+                                                worker_init_fn=worker_init_fn(args.seed),
+                                                drop_last=True)
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', mode='test', stuff=args.stuff, thing=args.thing)
+    testset    = EvalPASCAL(root='PASCAL_VOC', res=224, split='val', transform_list=['jitter', 'blur', 'grey'])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
                                              num_workers=args.num_workers,
                                              pin_memory=True,
-                                             collate_fn=collate_eval,
-                                             worker_init_fn=worker_init_fn(args.seed))
+                                            #  collate_fn=collate_eval,
+                                             worker_init_fn=worker_init_fn(args.seed),
+                                             drop_last=True)
+
 
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
@@ -168,12 +174,12 @@ def main(args, logger):
         classifier = classifier.to(device)
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
-        optimizer_loop = None  
+        
         logger.info('Start training ...')
         
-        train_loss = train(args, logger, trainloader, model, classifier, optimizer) 
+        train_loss = train(args, logger, trainloader, model, classifier, optimizer, device, epoch) 
         
-        acc, res   = evaluate(args, logger, testloader, classifier, model)
+        acc, res   = evaluate(args, logger, testloader, model, classifier, device, epoch)
 
         logger.info('========== Epoch [{}] =========='.format(epoch))
         logger.info('  Time total : [{}].'.format(get_datetime(int(t.time())-int(t1))))

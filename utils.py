@@ -49,8 +49,9 @@ class Logger(object):
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
         self.reset()
 
     def reset(self):
@@ -64,6 +65,11 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
 
 
 def get_datetime(time_delta):
@@ -94,7 +100,8 @@ def _fast_hist(label_true, label_pred, n_class):
 def scores(label_trues, label_preds, n_class):
     hist = np.zeros((n_class, n_class))
     for lt, lp in zip(label_trues, label_preds):
-        hist += _fast_hist(lt.flatten(), lp.flatten(), n_class)
+        # hist += _fast_hist(lt.flatten(), lp.flatten(), n_class)
+        hist[lt][lp] += 1 
     return hist
 
 
@@ -179,18 +186,18 @@ def get_faiss_module(args):
     cfg = faiss.GpuIndexFlatConfig()
     cfg.useFloat16 = False 
     cfg.device     = 0 #NOTE: Single GPU only. 
-    idx = faiss.GpuIndexFlatL2(res, args.in_dim, cfg)
+    idx = faiss.GpuIndexFlatL2(res, args.ndim, cfg)
 
     return idx
 
 def get_init_centroids(args, K, featlist, index):
-    clus = faiss.Clustering(args.in_dim, K)
+    clus = faiss.Clustering(args.ndim, K)
     clus.seed  = np.random.randint(args.seed)
     clus.niter = args.kmeans_n_iter
     clus.max_points_per_centroid = 10000000
     clus.train(featlist, index)
 
-    return faiss.vector_float_to_array(clus.centroids).reshape(K, args.in_dim)
+    return faiss.vector_float_to_array(clus.centroids).reshape(K, args.ndim)
 
 def module_update_centroids(index, centroids):
     index.reset()

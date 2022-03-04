@@ -1,8 +1,8 @@
-K_train=21
-K_test=21
+K_train=20
+K_test=20
 bsize=32
 num_epoch=10
-KM_INIT=20
+KM_INIT=3
 KM_NUM=1
 KM_ITER=20
 SEED=1
@@ -11,7 +11,7 @@ LR=1e-4
 mkdir -p results/mdc/train/${SEED}
 
 python train_mdc_pascal.py \
---data_root PASCAL_VOC \
+--data_root '/content/drive/MyDrive/UCS_local(renamed)/PASCAL_VOC' \
 --save_root results/pascal/train/${SEED} \
 --pretrain \
 --repeats 1 \

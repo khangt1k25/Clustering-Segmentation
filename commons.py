@@ -71,7 +71,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device):
     num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
     num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
     """
-    kmeans_loss  = AverageMeter()
+    kmeans_loss  = AverageMeter('kmloss')
     faiss_module = get_faiss_module(args)
     data_count   = np.zeros(args.K_train)
     featslist    = []
@@ -84,7 +84,8 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device):
     with torch.no_grad():
         for i_batch, (indice, _, _, img_k, sal_k) in enumerate(dataloader):
             
-            img_k, sal_k = img_k.to(device), sal_k.to(device)
+            # img_k, sal_k = img_k.to(device), sal_k.to(device)
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
             k, _ = model.model_k(img_k) # Bx dim x H x W
             k = nn.functional.normalize(k, dim=1)
             batch_size, dim = k.shape[0], k.shape[1]
@@ -196,36 +197,39 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     return weight
 
 
-def evaluate(args, logger, dataloader, classifier, model, device):
+def evaluate(args, logger, dataloader, model, classifier, device, epoch):
     logger.info('====== METRIC TEST : {} ======\n'.format(args.metric_test))
     histogram = np.zeros((args.K_test, args.K_test))
         
     model.eval()
     classifier.eval()
     with torch.no_grad():
-        for i, (_, image, label) in enumerate(dataloader):
-            # image = image.cuda(non_blocking=True)
-            image = image.to(device)
-            feats = model(image)
-
-            if args.metric_test == 'cosine':
-                feats = F.normalize(feats, dim=1, p=2)
+        for i_batch, (indice, img, sal, label) in enumerate(dataloader):
+            img, sal = img.to(device), sal.to(device)
+            q, _ = model.model_q(img)
             
-            B, C, H, W = feats.size()
-            if i == 0:
-                logger.info('Batch input size   : {}'.format(list(image.shape)))
-                logger.info('Batch label size   : {}'.format(list(label.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(feats.shape)))
+            q = nn.functional.normalize(q, dim=1) # BxdimxHxW
+            batch_size = q.shape[0]
 
-            probs = classifier(feats)
+            probs = classifier(q) #BxdimxHxW
             probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
-            preds = probs.topk(1, dim=1)[1].view(B, -1).cpu().numpy()
-            label = label.view(B, -1).cpu().numpy()
-
-            histogram += scores(label, preds, args.K_test)
             
-            if i%20==0:
-                logger.info('{}/{}'.format(i, len(dataloader)))
+            preds = (probs.topk(1, dim=1)[1].squeeze() + 1) * sal 
+            preds = preds.view(batch_size, -1).long().cpu().numpy()
+
+            # preds = probs.topk(1, dim=1)[1].view(batch_size, -1).cpu().numpy()
+            # label = label.view(batch_size, -1).cpu().numpy()
+            
+            valid_preds = preds[label != 255]
+            # valid_preds = preds[label != 0]
+            valid_label = label[label != 255]
+            # valid_label = label[label != 0]
+            
+
+            histogram += scores(valid_label, valid_preds, args.K_test)
+            
+            if i_batch%20==0:
+                logger.info('{}/{}'.format(i_batch, len(dataloader)))
     
     # Hungarian Matching. 
     m = linear_assignment(histogram.max() - histogram)
@@ -237,19 +241,20 @@ def evaluate(args, logger, dataloader, classifier, model, device):
     for idx in range(args.K_test):
         new_hist[m[idx, 1]] = histogram[idx]
     
+
     # NOTE: Now [new_hist] is re-ordered to 12 thing + 15 stuff classses. 
     res1 = get_result_metrics(new_hist)
     logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
     logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
 
-    # For Table 2 - partitioned evaluation.
-    if args.thing and args.stuff:
-        res2 = get_result_metrics(new_hist[1:, 1:])
-        logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
+    # # For Table 2 - partitioned evaluation.
+    # if args.thing and args.stuff:
+    #     res2 = get_result_metrics(new_hist[1:, 1:])
+    #     logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
+    #     logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
 
-        res3 = get_result_metrics(new_hist[:1, :1])
-        logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
+    #     res3 = get_result_metrics(new_hist[:1, :1])
+    #     logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
+    #     logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
     
     return acc, res1

@@ -10,32 +10,13 @@ import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
 from data.custom_transforms import *
-# from custom_transforms import *
 from data.utils import *  
-
-# def collate_eval(batch):
-#     indice = [b[0] for b in batch]
-#     image = torch.stack([b[1] for b in batch])
-#     label = torch.stack([b[2] for b in batch])
-
-#     return indice, image, label 
-
-# def collate_train_baseline(batch):
-#     if batch[0][-1] is not None:
-#         return collate_eval(batch)
-    
-#     indice = [b[0] for b in batch]
-#     image  = torch.stack([b[1] for b in batch])
-    
-#     return indice, image
-# def worker_init_fn(seed):
-#     return lambda x: np.random.seed(seed + x)
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
     FILE = 'PASCAL_VOC.tgz'
     DB_NAME = 'VOCSegmentation'
-    def __init__(self, root, split='train', res=224, inv_list=[], eqv_list=[], \
+    def __init__(self, root, split='trainaug', res=224, inv_list=[], eqv_list=[], \
         download=False):
         
         self.root  = root 
@@ -43,7 +24,7 @@ class TrainPASCAL(data.Dataset):
         self.res = res
         self.inv_list = inv_list
         self.eqv_list = eqv_list
-  
+    
         
         if download:
             self._download()

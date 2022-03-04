@@ -11,12 +11,45 @@ import torch.nn.functional as F
 # import matplotlib.pyplot as plt
 
 
-feats = torch.randn((32, 64, 128, 128)) # Bx Cx H x W
-sal = torch.randn((32, 128, 128))
-sal = sal.unsqueeze(1)
-feats = feats * sal # need to fixed
+# feats = torch.randn((32, 64, 128, 128)) # Bx Cx H x W
+# sal = torch.randn((32, 128, 128))
+# sal = sal.unsqueeze(1)
+# feats = feats * sal # need to fixed
 
-print(feats.shape)
+# print(feats.shape)
+
+# for i_batch, (indice, img, sal, label) in enumerate(dataloader):
+# img_q, sal_q = img_q.to(device), sal_q.to(device)
+# q, _ = model.model_q(img_q)
+
+# q = nn.functional.normalize(q, dim=1) # BxdimxHxW
+# batch_size = q.shape[0]
+
+# probs = classifier(q) #BxdimxHxW
+# probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
+
+
+# preds = probs.topk(1, dim=1)[1].view(batch_size, -1).cpu().numpy()
+# label = label.view(batch_size, -1).cpu().numpy()
+label = torch.randint(low=0, high=20, size=(16, 224, 224))
+probs = torch.randn((16, 20, 224, 224))
+probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
+sal = torch.randint(low=0, high=1, size=(16, 224, 224))
+
+preds = probs.topk(1, dim=1)[1].view(16, -1).cpu().numpy()
+label = label.view(16, -1).cpu().numpy()
+
+valid_preds = preds[label != 255]
+valid_preds = preds[label != 0]
+valid_label = label[label != 255]
+valid_label = label[label != 0]
+
+            
+
+# print(preds.shape)
+print(valid_preds.shape)
+print(valid_label.shape)
+
 # VOC_CLASSES = [
 #     'background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus',
 #     'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike',

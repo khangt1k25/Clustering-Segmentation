@@ -71,12 +71,13 @@ class ContrastiveModel(nn.Module):
     def forward(self, im_q, sal_q, im_k, sal_k, classfier):
 
         batch_size, dim, H, W = im_q.shape
-        
     
         q, q_bg = self.model_q(im_q)         # queries: B x dim x H x W
         q = nn.functional.normalize(q, dim=1)
         
         # compute saliency loss
+
+
         sal_loss = self.bce(q_bg, sal_q)
 
 
@@ -84,11 +85,8 @@ class ContrastiveModel(nn.Module):
         cluster = cluster.permute((0, 2, 3, 1)) # BxHxWxC
         cluster = torch.reshape(cluster, [-1, cluster.shape[-1]]) # BHW x C
         with torch.no_grad():
-            # pseudo_labels = (torch.argmax(cluster, dim=1) + 1)*sal_q.unsqueeze(1)
             pseudo_labels = torch.argmax(cluster, dim=1).long() # BHW
-        
-
-        
+                
         
         with torch.no_grad():
             offset = torch.arange(0, 2 * batch_size, 2).to(sal_q.device)
@@ -121,7 +119,7 @@ class ContrastiveModel(nn.Module):
         batch_logits = torch.matmul(q, prototypes_obj.t()) #pixels x B
         mask = torch.ones_like(batch_logits).scatter_(1, sal_q.unsqueeze(1), 0.)
         batch_logits = batch_logits[mask.bool()].view(batch_logits.shape[0], -1)
-
+        
 
 
         bank_obj = self.obj_queue.clone().detach()         # dim x negatives
