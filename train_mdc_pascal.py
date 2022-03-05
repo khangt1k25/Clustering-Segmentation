@@ -1,6 +1,7 @@
 import argparse
 from operator import inv
 import os
+from posixpath import split
 import time as t
 import numpy as np
 
@@ -45,6 +46,7 @@ def parse_arguments():
     parser.add_argument('--pretraining', type=str, default='imagenet_classification')
     parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
     parser.add_argument('--ndim', type=int, default=32)
+    parser.add_argument('--eval_interval', type=int, default=1)
 
     # Loss. 
     parser.add_argument('--K_train', type=int, default=1000)
@@ -154,7 +156,8 @@ def main(args, logger):
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start clustering ... \n')
         t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device)
+        
+        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device, split='train')
         
         logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
         
@@ -175,30 +178,25 @@ def main(args, logger):
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
         
+
         logger.info('Start training ...\n')
         t2 = t.time()
         train_loss = train(args, logger, trainloader, model, classifier, optimizer, device, epoch, kmloss) 
         logger.info('Finish training ...\n')
 
-        logger.info('Start evaluating ...\n')
-        acc, res   = evaluate(args, logger, testloader, model, classifier, device)
-        logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
-        logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
-        logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
-        logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
-        logger.info('  ACC: {:.4f} | mIoU: {:.4f}\n'.format(acc, res['mean_iou']))
-        logger.info('=================================================\n')
-        logger.info('Finish evaluating ...\n')
+        if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
+            logger.info('Start evaluating ...\n')
+            acc, res   = evaluate(args, logger, testloader, model, classifier, device)
+            logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
+            logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
+            logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
+            logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
+            logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
+            logger.info('=================================================\n')
+            logger.info('Finish evaluating ...\n')
 
         logger.info('Start checkpointing ...\n')
-        torch.save({'epoch': epoch+1, 
-                    'args' : args,
-                    'state_dict': model.state_dict(),
-                    'classifier1_state_dict' : classifier.state_dict(),
-                    'optimizer' : optimizer.state_dict(),
-                    },
-                    os.path.join(args.save_model_path, 'checkpoint_{}.pth.tar'.format(epoch)))
-        
+       
         torch.save({'epoch': epoch+1, 
                     'args' : args,
                     'state_dict': model.state_dict(),
@@ -236,12 +234,14 @@ def main(args, logger):
     acc_list_new = []  
     res_list_new = []
     logger.info('================================Start evaluating the LAST==============================\n')                 
+    
+    
     if args.repeats > 0:
         for r in range(args.repeats):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
+            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device, split='test')
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
 
@@ -260,6 +260,7 @@ def main(args, logger):
         acc_new, res_new = evaluate(args, logger, testloader, classifier, model)
         acc_list_new.append(acc_new)
         res_list_new.append(res_new)
+    
 
     logger.info('Average overall pixel accuracy [NEW] : {} +/- {}.'.format(round(np.mean(acc_list_new), 2), np.std(acc_list_new)))
     logger.info('Average mIoU [NEW] : {:.3f} +/- {:.3f}. '.format(np.mean([res['mean_iou'] for res in res_list_new]), 

@@ -66,14 +66,18 @@ def get_optimizer(args, parameters):
     return optimizer
 
 
-def run_mini_batch_kmeans(args, logger, dataloader, model, device):
+def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'):
     """
     num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
     num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
     """
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    data_count   = np.zeros(args.K_train)
+    if split=='train':
+        K = args.K_train
+    elif split == 'test':
+        K = args.K_test
+    data_count   = np.zeros(K)
     featslist    = []
     num_batches  = 0
     reducer = 100
@@ -119,7 +123,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device):
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
                         featslist = torch.cat(featslist).cpu().numpy().astype('float32')
-                        centroids = get_init_centroids(args, args.K_train, featslist, faiss_module).astype('float32')
+                        centroids = get_init_centroids(args, K, featslist, faiss_module).astype('float32')
                         D, I = faiss_module.search(featslist, 1)
 
                         kmeans_loss.update(D.mean())
@@ -206,24 +210,22 @@ def evaluate(args, logger, dataloader, model, classifier, device):
         for i_batch, (indice, img, sal, label) in enumerate(dataloader):
             img, sal = img.to(device), sal.to(device)
             q, _ = model.model_q(img)
-            
             q = nn.functional.normalize(q, dim=1) # BxdimxHxW
-            batch_size = q.shape[0]
-
             probs = classifier(q) #BxdimxHxW
             probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
-            
-            preds = (probs.topk(1, dim=1)[1].squeeze() + 1) * sal 
-            preds = preds.view(batch_size, -1).long().cpu().numpy()
 
-            # preds = probs.topk(1, dim=1)[1].view(batch_size, -1).cpu().numpy()
-            # label = label.view(batch_size, -1).cpu().numpy()
+            preds = probs.topk(1, dim=1)[1].squeeze().view(-1).cpu().numpy()
+
+            label = label.view(-1).cpu().numpy()
+
             
             valid_preds = preds[label != 255]
-            # valid_preds = preds[label != 0]
             valid_label = label[label != 255]
-            # valid_label = label[label != 0]
-            
+
+            valid_preds = valid_preds[valid_label != 0]
+            valid_label = valid_label[valid_label != 0]
+            valid_label = valid_label - 1
+
 
             histogram += scores(valid_label, valid_preds, args.K_test)
             
@@ -234,26 +236,14 @@ def evaluate(args, logger, dataloader, model, classifier, device):
     m = linear_assignment(histogram.max() - histogram)
     
     # Evaluate. 
-    acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
+    match = np.array(list(zip(*m)))
+    acc = histogram[match[:, 0], match[:, 1]].sum() / histogram.sum() * 100
 
     new_hist = np.zeros((args.K_test, args.K_test))
     for idx in range(args.K_test):
-        new_hist[m[idx, 1]] = histogram[idx]
+        new_hist[match[idx, 1]] = histogram[idx]
     
 
-    # NOTE: Now [new_hist] is re-ordered to 12 thing + 15 stuff classses. 
-    res1 = get_result_metrics(new_hist)
-    # logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
-    # logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
+    res = get_result_metrics(new_hist)
 
-    # # For Table 2 - partitioned evaluation.
-    # if args.thing and args.stuff:
-    #     res2 = get_result_metrics(new_hist[1:, 1:])
-    #     logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
-    #     logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
-
-    #     res3 = get_result_metrics(new_hist[:1, :1])
-    #     logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
-    #     logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
-    
-    return acc, res1
+    return acc, res

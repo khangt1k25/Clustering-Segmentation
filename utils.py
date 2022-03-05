@@ -1,7 +1,8 @@
 import random
 import os 
 import logging
-import pickle 
+import pickle
+from matplotlib.pyplot import get 
 import numpy as np 
 import torch
 import torch.nn as nn
@@ -155,8 +156,12 @@ def freeze_all(model):
         param.requires_grad = False 
 
 
-def initialize_classifier(args):
-    classifier = get_linear(args.in_dim, args.K_train)
+def initialize_classifier(args, split='train'):
+    if split=='train':
+        classifier = get_linear(args.ndim, args.K_train)
+    elif split == 'test':
+        classifier = get_linear(args.ndim, args.K_test)
+    
     return classifier
 
 def get_linear(indim, outdim):
