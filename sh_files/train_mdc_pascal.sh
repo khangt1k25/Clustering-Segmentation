@@ -2,8 +2,8 @@ K_train=20
 K_test=20
 bsize=32
 num_epoch=10
-KM_INIT=3
-KM_NUM=1
+KM_INIT=20 # need
+KM_NUM=1 #need
 KM_ITER=20
 SEED=1
 LR=1e-4
@@ -21,8 +21,7 @@ python train_mdc_pascal.py \
 --num_batches ${KM_NUM} \
 --kmeans_n_iter ${KM_ITER} \
 --K_train ${K_train} --K_test ${K_test} \
---stuff --thing  \
 --batch_size_cluster ${bsize}  \
 --num_epoch ${num_epoch} \
---res 224 --res1 224 --res2 448 \
+--res 224 \
 --augment --jitter --blur --grey --equiv --random_crop --h_flip 

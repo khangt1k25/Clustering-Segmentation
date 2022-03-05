@@ -41,6 +41,7 @@ def parse_arguments():
     parser.add_argument('--kmeans_n_iter', type=int, default=30)
 
     # additonal
+    parser.add_argument('--pretrain', action='store_true', default=False)
     parser.add_argument('--pretraining', type=str, default='imagenet_classification')
     parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
     parser.add_argument('--ndim', type=int, default=32)
@@ -126,7 +127,7 @@ def main(args, logger):
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    trainset = TrainPASCAL(args.data_root, res=args.res, split='trainaug', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
+    trainset = TrainPASCAL(args.data_root, res=args.res, split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -274,14 +275,12 @@ if __name__=='__main__':
     if not args.pretrain:
         args.save_root += '/scratch'
     if args.augment:
-        args.save_root += '/augmented/res1={}_res2={}/jitter={}_blur={}_grey={}'.format(args.res1, args.res2, args.jitter, args.blur, args.grey)
+        args.save_root += '/augmented/res={}/jitter={}_blur={}_grey={}'.format(args.res, args.jitter, args.blur, args.grey)
     if args.equiv:
         args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/min_scale\={}'.format(args.h_flip, args.v_flip, args.random_crop, args.min_scale)
-    if args.nonparametric:
-        args.save_root += '/nonparam'
-        
-    args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}_{}'.format(args.K_train, args.metric_train))
-    args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}_{}'.format(args.K_test, args.metric_test))
+
+    args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}'.format(args.K_train))
+    args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}'.format(args.K_test))
     
     if not os.path.exists(args.save_eval_path):
         os.makedirs(args.save_eval_path)
