@@ -100,7 +100,9 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch,
         # Display progress
         if i_batch % 25 == 0:
             progress.display(i_batch)
-
+    
+    with torch.no_grad():
+      model._momentum_update_key_encoder()
     
     writer_path = os.path.join(args.save_model_path, "runs")
     writer = SummaryWriter(log_dir=writer_path)
@@ -129,7 +131,7 @@ def main(args, logger):
 
     # New trainset inside for-loop.
     inv_list, eqv_list = get_transform_params(args)
-    trainset = TrainPASCAL(args.data_root, res=args.res, split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
+    trainset = TrainPASCAL(args.data_root, res=args.res, split='trainaug', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -178,6 +180,7 @@ def main(args, logger):
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
         
+        del centroids
 
         logger.info('Start training ...\n')
         t2 = t.time()
@@ -245,9 +248,9 @@ def main(args, logger):
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
 
-            classifier = initialize_classifier(args)
+            classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
-            classifier.module.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
+            classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier)
             
             acc_new, res_new = evaluate(args, logger, testloader, model, classifier, device)
@@ -278,7 +281,7 @@ if __name__=='__main__':
     if args.augment:
         args.save_root += '/augmented/res={}/jitter={}_blur={}_grey={}'.format(args.res, args.jitter, args.blur, args.grey)
     if args.equiv:
-        args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/min_scale\={}'.format(args.h_flip, args.v_flip, args.random_crop, args.min_scale)
+        args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/'.format(args.h_flip, args.v_flip, args.random_crop)
 
     args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}'.format(args.K_train))
     args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}'.format(args.K_test))

@@ -82,7 +82,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     num_batches  = 0
     reducer = 100
     first_batch  = True
-    drop = True
+    drop = False
 
     model.eval()
     with torch.no_grad():
@@ -97,17 +97,17 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
             k = torch.reshape(k, [-1, dim]) # queries: BHW x dim
             
             # Drop background pixels
+            offset = torch.arange(0, 2 * batch_size, 2).to(sal_k.device)
+            sal_k = (sal_k + torch.reshape(offset, [-1, 1, 1]))*sal_k 
+            sal_k = sal_k.view(-1)
+            mask_indexes = torch.nonzero((sal_k)).view(-1).squeeze()
+    
             if drop:
-                offset = torch.arange(0, 2 * batch_size, 2).to(sal_k.device)
-                sal_k = (sal_k + torch.reshape(offset, [-1, 1, 1]))*sal_k 
-                sal_k = sal_k.view(-1)
-                
-                mask_indexes = torch.nonzero((sal_k)).view(-1).squeeze()
                 reducer_idx = torch.randperm(mask_indexes.shape[0])[:reducer*batch_size]
                 mask_indexes = mask_indexes[reducer_idx]
-                k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() # pixels x dim 
-            else:
-                k = k.detach().cpu()
+            
+            k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() 
+            
 
             if i_batch == 0:
                 logger.info('Batch input size : {}'.format(list(img_k.shape)))
@@ -153,7 +153,8 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
-
+    
+    del faiss_module
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg

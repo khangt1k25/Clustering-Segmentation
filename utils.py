@@ -1,8 +1,7 @@
 import random
 import os 
 import logging
-import pickle
-from matplotlib.pyplot import get 
+import pickle 
 import numpy as np 
 import torch
 import torch.nn as nn
@@ -141,7 +140,7 @@ def get_metric_as_conv(centroids, device):
     centroids_weight = centroids.unsqueeze(-1).unsqueeze(-1)
     metric_function  = nn.Conv2d(C, N, 1, padding=0, stride=1, bias=False)
     metric_function.weight.data = centroids_weight
-    metric_function = nn.DataParallel(metric_function)
+    # metric_function = nn.DataParallel(metric_function)
     # metric_function = metric_function.cuda()
     metric_function = metric_function.to(device)
     
@@ -157,11 +156,10 @@ def freeze_all(model):
 
 
 def initialize_classifier(args, split='train'):
-    if split=='train':
-        classifier = get_linear(args.ndim, args.K_train)
-    elif split == 'test':
-        classifier = get_linear(args.ndim, args.K_test)
-    
+    if split == 'train':
+      classifier = get_linear(args.ndim, args.K_train)
+    else:
+      classifier = get_linear(args.ndim, args.K_test)
     return classifier
 
 def get_linear(indim, outdim):
