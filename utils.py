@@ -126,24 +126,15 @@ def get_result_metrics(histogram):
 
 def compute_negative_euclidean(featmap, sal,  centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
-    feats = metric_function(featmap) # Bx Cx H x W
-    feats = feats * sal.unsqueeze(1) 
-
-
-    return - (1 - 2*metric_function(featmap)\
-                + (centroids*centroids).sum(dim=1).unsqueeze(0)) # negative l2 squared 
-        
+    return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))*sal.unsqueeze(1)
+    
 
 def get_metric_as_conv(centroids, device):
-    N, C = centroids.size()
-
+    C, dim = centroids.size()
     centroids_weight = centroids.unsqueeze(-1).unsqueeze(-1)
-    metric_function  = nn.Conv2d(C, N, 1, padding=0, stride=1, bias=False)
+    metric_function  = nn.Conv2d(dim, C, 1, padding=0, stride=1, bias=False)
     metric_function.weight.data = centroids_weight
-    # metric_function = nn.DataParallel(metric_function)
-    # metric_function = metric_function.cuda()
     metric_function = metric_function.to(device)
-    
     return metric_function
 
 ################################################################################
@@ -190,7 +181,6 @@ def get_faiss_module(args):
     cfg.useFloat16 = False 
     cfg.device     = 0 #NOTE: Single GPU only. 
     idx = faiss.GpuIndexFlatL2(res, args.ndim, cfg)
-
     return idx
 
 def get_init_centroids(args, K, featlist, index):
@@ -234,25 +224,27 @@ def worker_init_fn(seed):
 #                               Training Pipelines                             #
 ################################################################################
 
-def postprocess_label(K, idx, scores):
-    out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
+def postprocess_label(args, K, idx, idx_img, scores, sal, view):
+    
+    # out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
 
-    # # We do not use
-    # # Save labels.
-    # if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(n_dual))):
-    #     os.makedirs(os.path.join(args.save_model_path, 'label_' + str(n_dual)))
-    # torch.save(out, os.path.join(args.save_model_path, 'label_' + str(n_dual), '{}.pkl'.format(idx_img)))
+    out = (scores[idx].topk(1, dim=0)[1] + 1) * sal[idx]
+    out = out.flatten().long().detach().cpu().numpy()
+    
+    # Save labels.
+    if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(view))):
+        os.makedirs(os.path.join(args.save_model_path, 'label_' + str(view)))
+    torch.save(out, os.path.join(args.save_model_path, 'label_' + str(view), '{}.pkl'.format(idx_img)))
     
     # Count for re-weighting. 
     counts = torch.tensor(np.bincount(out, minlength=K)).float()
-
-    return counts
+    
+    return counts   
 
 
 def eqv_transform_if_needed(args, dataloader, indice, input):
     if args.equiv:
         input = dataloader.dataset.transform_eqv(indice, input)
-
     return input  
 
 

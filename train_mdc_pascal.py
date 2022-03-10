@@ -41,12 +41,14 @@ def parse_arguments():
     parser.add_argument('--num_batches', type=int, default=64)
     parser.add_argument('--kmeans_n_iter', type=int, default=30)
 
-    # additonal
+    # Additonal
     parser.add_argument('--pretrain', action='store_true', default=False)
     parser.add_argument('--pretraining', type=str, default='imagenet_classification')
     parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
     parser.add_argument('--ndim', type=int, default=32)
+    parser.add_argument('--reducer', type=int, default=0)
     parser.add_argument('--eval_interval', type=int, default=1)
+
 
     # Loss. 
     parser.add_argument('--K_train', type=int, default=1000)
@@ -71,20 +73,19 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def train(args, logger, dataloader, model, classifier, optimizer, device, epoch, kmloss):
+def train(args, logger, dataloader, model, classifier, optimizer, criterion, device, epoch, kmloss):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
     saliency_losses = AverageMeter('Saliency Loss')
-
     progress = ProgressMeter(len(dataloader), 
                         [losses, contrastive_losses , saliency_losses],
                         prefix="Epoch: [{}]".format(epoch))
     
-    criterion = nn.CrossEntropyLoss(reduction='mean')
     model.train()
-    for i_batch, (indice, img_q, sal_q, img_k, sal_k) in enumerate(dataloader):
+    for i_batch, (indice, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
+        
         img_q, sal_q, img_k, sal_k = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device)
-
+        
         logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier)
 
         contrastive_loss = criterion(logits, labels)
@@ -137,7 +138,6 @@ def main(args, logger):
                                                 shuffle=True, 
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
-                                                # collate_fn=collate_train_baseline,
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 drop_last=True)
 
@@ -147,11 +147,10 @@ def main(args, logger):
                                              shuffle=False,
                                              num_workers=args.num_workers,
                                              pin_memory=True,
-                                            #  collate_fn=collate_eval,
                                              worker_init_fn=worker_init_fn(args.seed),
                                              drop_last=True)
 
-
+    
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
         # Assign probs. 
@@ -163,14 +162,13 @@ def main(args, logger):
         
         logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
         
-        ## We do not use this
-        # Compute cluster assignment. 
-        # t2 = t.time()
-        # weight = compute_labels(args, logger, trainloader, model, centroids, device=device) 
-        # logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
+        ## Compute cluster assignment. 
+        t2 = t.time()
+        weight = compute_labels(args, logger, trainloader, model, centroids, device=device) 
+        logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
-        # Criterion. 
-        # criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
+        ## Criterion. 
+        criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
         # criterion = torch.nn.CrossEntropyLoss().to(device)
 
 
@@ -179,12 +177,23 @@ def main(args, logger):
         classifier = classifier.to(device)
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
-        
         del centroids
+
+        trainset.mode  = 'label'
+        trainset.labeldir = args.save_model_path
+        trainloader_loop  = torch.utils.data.DataLoader(trainset, 
+                                                        batch_size=args.batch_size_train, 
+                                                        shuffle=True,
+                                                        num_workers=args.num_workers,
+                                                        pin_memory=True,
+                                                        # collate_fn=collate_train_baseline,
+                                                        worker_init_fn=worker_init_fn(args.seed)
+                                                        )
+
 
         logger.info('Start training ...\n')
         t2 = t.time()
-        train_loss = train(args, logger, trainloader, model, classifier, optimizer, device, epoch, kmloss) 
+        train_loss = train(args, logger, trainloader, model, classifier, optimizer, criterion, device, epoch, kmloss) 
         logger.info('Finish training ...\n')
 
         if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):

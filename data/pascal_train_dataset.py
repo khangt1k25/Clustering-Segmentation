@@ -54,7 +54,6 @@ class TrainPASCAL(data.Dataset):
 
     def _download(self):
         
-    
         _fpath = os.path.join(self.root, self.FILE)
 
         if os.path.isfile(_fpath):
@@ -96,7 +95,6 @@ class TrainPASCAL(data.Dataset):
     
     def __getitem__(self, index):
         
-        index = self.shuffled_indices[index]
         image = self.load_data(index)
         sal = self.load_sal(index)
 
@@ -105,7 +103,23 @@ class TrainPASCAL(data.Dataset):
         image_query, sal_query = self.transform_image_sal(index, image, sal, ver=0)
         image_key, sal_key = self.transform_image_sal(index, image, sal, ver=1)
         
-        return index, image_query, sal_query, image_key, sal_key
+        label = self.get_pseudo_labels(index)
+
+        return index, image_query, label, sal_query,  image_key, sal_key
+
+    
+    def get_pseudo_labels(self, index):
+        if self.mode == 'label':
+            label = torch.load(os.path.join(self.labeldir, 'label_query', '{}.pkl'.format(index)))
+            label = torch.LongTensor(label)
+
+            X1 = int(np.sqrt(label.shape[0]))
+            
+            label1 = label.view(X1, X1)
+
+            return label1
+        
+        return None
 
     def transform_image_sal(self, index, image, sal, ver):
 
@@ -150,7 +164,6 @@ class TrainPASCAL(data.Dataset):
         else:
             raise ValueError('Mode [{}] is an invalid option.'.format(self.mode))
 
-    
     def transform_inv(self, index, image, ver):
         """
         Hyperparameters same as MoCo v2. 
@@ -180,7 +193,6 @@ class TrainPASCAL(data.Dataset):
             image, sal = self.random_vertical_flip(index, image, sal)
 
         return image, sal
-
 
     def init_transforms(self):
         N = len(self.images)

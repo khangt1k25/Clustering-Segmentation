@@ -189,7 +189,6 @@ class ContrastiveSegmentationModel(nn.Module):
         else:
             raise NotImplementedError('Head {} is currently not supported'.format(head))
 
-
         if self.use_classification_head: # Add classification head for saliency prediction
             self.classification_head = nn.Conv2d(self.head.in_channels, 1, 1, bias=False)
 

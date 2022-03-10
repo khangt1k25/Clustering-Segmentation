@@ -96,7 +96,7 @@ class ContrastiveModel(nn.Module):
             sal_q = torch.index_select(sal_q, index=mask_indexes, dim=0) // 2
         
         with torch.no_grad():
-            self._momentum_update_key_encoder()  # update the key encoder
+            # self._momentum_update_key_encoder()  # update the key encoder
 
             k, _ = self.model_k(im_k)  # keys: N x C x H x W
             k = nn.functional.normalize(k, dim=1)
