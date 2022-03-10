@@ -10,11 +10,10 @@ import torch.nn.functional as F
 # import numpy as np
 # import matplotlib.pyplot as plt
 
-x = torch.randn((32, 16, 224, 224))
-y = torch.randn((1, 16, 1, 1))
-
-z = x+y
-print(z.shape)
+m = torch.randn(4,3)
+print(m)
+ids = torch.Tensor([1,1,0,0]).long()
+print(m.gather(1, ids.view(-1,1)))
 
 # VOC_CLASSES = [
 #     'background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus',

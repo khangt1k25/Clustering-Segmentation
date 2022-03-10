@@ -84,9 +84,9 @@ def train(args, logger, dataloader, model, classifier, optimizer, criterion, dev
     model.train()
     for i_batch, (indice, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
         
-        img_q, sal_q, img_k, sal_k = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device)
+        img_q, sal_q, img_k, sal_k, label = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device), label.to(device)
         
-        logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier)
+        logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label)
 
         contrastive_loss = criterion(logits, labels)
         loss = contrastive_loss + saliency_loss 
@@ -103,7 +103,7 @@ def train(args, logger, dataloader, model, classifier, optimizer, criterion, dev
             progress.display(i_batch)
     
     with torch.no_grad():
-      model._momentum_update_key_encoder()
+      model.momentum_update_key_encoder()
     
     writer_path = os.path.join(args.save_model_path, "runs")
     writer = SummaryWriter(log_dir=writer_path)
@@ -168,8 +168,8 @@ def main(args, logger):
         logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         ## Criterion. 
-        criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
-        # criterion = torch.nn.CrossEntropyLoss().to(device)
+        # criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
+        criterion = torch.nn.CrossEntropyLoss().to(device)
 
 
         # Set nonparametric classifier.
@@ -179,6 +179,7 @@ def main(args, logger):
         freeze_all(classifier)
         del centroids
 
+        # Set trainset to get pseudolabel
         trainset.mode  = 'label'
         trainset.labeldir = args.save_model_path
         trainloader_loop  = torch.utils.data.DataLoader(trainset, 

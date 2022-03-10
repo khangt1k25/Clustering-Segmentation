@@ -44,7 +44,7 @@ class ContrastiveModel(nn.Module):
         self.bce = BalancedCrossEntropyLoss(size_average=True)
 
     @torch.no_grad()
-    def _momentum_update_key_encoder(self):
+    def momentum_update_key_encoder(self):
         """
         Momentum update of the key encoder
         """
@@ -68,26 +68,24 @@ class ContrastiveModel(nn.Module):
 
 
 
-    def forward(self, im_q, sal_q, im_k, sal_k, classfier):
-
+    def forward(self, im_q, sal_q, im_k, sal_k, classfier, label):
+        
         batch_size, dim, H, W = im_q.shape
     
         q, q_bg = self.model_q(im_q)         # queries: B x dim x H x W
         q = nn.functional.normalize(q, dim=1)
         
         # compute saliency loss
-
-
         sal_loss = self.bce(q_bg, sal_q)
 
-
-        cluster = classfier(q) # BxCxHxW
-        cluster = cluster.permute((0, 2, 3, 1)) # BxHxWxC
-        cluster = torch.reshape(cluster, [-1, cluster.shape[-1]]) # BHW x C
-        with torch.no_grad():
-            pseudo_labels = torch.argmax(cluster, dim=1).long() # BHW
-                
         
+        probs = classfier(q) # BxCxHxW
+        probs = probs.permute((0, 2, 3, 1))
+        probs = torch.reshape(probs, [-1, probs.shape[-1]]) # BHW x C
+        label =  torch.reshape(label, [-1, ]) #BHW 
+        
+
+
         with torch.no_grad():
             offset = torch.arange(0, 2 * batch_size, 2).to(sal_q.device)
             sal_q = (sal_q + torch.reshape(offset, [-1, 1, 1]))*sal_q # all bg's to 0
@@ -97,7 +95,6 @@ class ContrastiveModel(nn.Module):
         
         with torch.no_grad():
             # self._momentum_update_key_encoder()  # update the key encoder
-
             k, _ = self.model_k(im_k)  # keys: N x C x H x W
             k = nn.functional.normalize(k, dim=1)
             k = k.reshape(batch_size, self.dim, -1) # B x dim x H.W
@@ -112,8 +109,18 @@ class ContrastiveModel(nn.Module):
         q = torch.reshape(q, [-1, self.dim]) # queries: BHW x dim
         q = torch.index_select(q, index=mask_indexes, dim=0)  # pixels x dim
         
-        cluster = torch.index_select(cluster, index=mask_indexes, dim=0) # pixels x cluster
-        pseudo_labels = torch.index_select(pseudo_labels, index=mask_indexes, dim=0)    
+        probs = torch.index_select(probs, index=mask_indexes, dim=0) # pixels x C
+        label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
+
+        opt = True # 1:do not push away other cluster
+        if opt:
+            label = (label -1).long()
+            label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
+            probs = probs.gather(1, label.view(-1, 1))
+            label = torch.zeros(probs.shape[0]).cuda()
+        else:
+            label = (label -1).long()
+        
 
 
         batch_logits = torch.matmul(q, prototypes_obj.t()) #pixels x B
@@ -125,14 +132,14 @@ class ContrastiveModel(nn.Module):
         bank_obj = self.obj_queue.clone().detach()         # dim x negatives
         bank_logits =  torch.matmul(q, bank_obj)          # pixels x negatives
         
-        logits  = torch.cat([cluster, batch_logits, bank_logits], dim=1) # pixels x (cluster+ negatives)
+        logits  = torch.cat([probs, batch_logits, bank_logits], dim=1) # pixels x (cluster+ negatives)
         
         self._dequeue_and_enqueue(prototypes_obj) 
 
 
         logits /= self.T
         
-        return logits, pseudo_labels.long(), sal_loss
+        return logits, label.long(), sal_loss
 
 
 

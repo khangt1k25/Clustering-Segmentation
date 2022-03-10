@@ -203,7 +203,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             q = nn.functional.normalize(q, dim=1) # BxdimxHxW
             probs = classifier(q) #BxdimxHxW
             probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
-
+            
             preds = probs.topk(1, dim=1)[1].squeeze().view(-1).cpu().numpy()
 
             label = label.view(-1).cpu().numpy()
