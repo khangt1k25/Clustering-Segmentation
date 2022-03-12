@@ -40,7 +40,7 @@ def get_model_and_optimizer(args, logger, device):
             checkpoint  = torch.load(load_path)
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
-            classifier.load_state_dict(checkpoint['classifier_state_dict'])
+            classifier.load_state_dict(checkpoint['classifier1_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info('Loaded checkpoint. [epoch {}]'.format(args.start_epoch))
         else:
@@ -126,6 +126,8 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
                         for k in np.unique(I):
                             data_count[k] += len(np.where(I == k)[0])
                         first_batch = False
+
+                        # break # discard this 
                     else:
                         b_feat = torch.cat(featslist)
                         faiss_module = module_update_centroids(faiss_module, centroids)
@@ -159,7 +161,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     Label for Query view
     The distance is efficiently computed by setting centroids as convolution layer. 
     """
-    K = centroids.size(0)
+    K = centroids.size(0) + 1
 
     # Define metric function with conv layer. 
     metric_function = get_metric_as_conv(centroids, device)
@@ -167,7 +169,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     model.eval()
     with torch.no_grad():
         for i_batch, (indice, img_q, sal_q, _, _, _) in enumerate(dataloader):
-            img_q, sal_q = img_q.to(device), sal_q.to(device)
+            img_q, sal_q = img_q.cuda(non_blocking=True), sal_q.cuda(non_blocking=True)
             q, _ = model.model_q(img_q) # Bx dim x H x W
             q = nn.functional.normalize(q, dim=1)
 

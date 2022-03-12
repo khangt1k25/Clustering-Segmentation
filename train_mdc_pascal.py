@@ -73,25 +73,45 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def train(args, logger, dataloader, model, classifier, optimizer, criterion, device, epoch, kmloss):
+def train(args, logger, dataloader, model, classifier, optimizer, device, epoch, kmloss):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
+    cluster_losses = AverageMeter('Cluster loss')
     saliency_losses = AverageMeter('Saliency Loss')
     progress = ProgressMeter(len(dataloader), 
-                        [losses, contrastive_losses , saliency_losses],
+                        [losses, contrastive_losses , cluster_losses, saliency_losses],
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
     for i_batch, (indice, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
         
-        img_q, sal_q, img_k, sal_k, label = img_q.to(device), sal_q.to(device), img_k.to(device), sal_k.to(device), label.to(device)
-        
-        logits, labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label)
+        img_q = img_q.cuda(non_blocking=True)
+        sal_q = sal_q.cuda(non_blocking=True)
+        label = label.cuda(non_blocking=True)
+        img_k = img_k.cuda(non_blocking=True)
+        sal_k = sal_k.cuda(non_blocking=True)
 
-        contrastive_loss = criterion(logits, labels)
-        loss = contrastive_loss + saliency_loss 
         
+        logits, labels, cluster_logits, cluster_labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label)
+
+         # Use E-Net weighting for calculating the pixel-wise loss.
+        uniq, freq = torch.unique(labels, return_counts=True)
+        p_class = torch.zeros(logits.shape[1], dtype=torch.float32).cuda(p['gpu'], non_blocking=True)
+        p_class_non_zero_classes = freq.float() / labels.numel()
+        p_class[uniq] = p_class_non_zero_classes
+        w_class = 1 / torch.log(1.02 + p_class)
+        contrastive_loss = F.cross_entropy(logits, labels, weight=w_class,
+                                            reduction='mean')
+
+        cluster_loss = F.cross_entropy(cluster_logits, cluster_labels, reduction='mean')
+
+        
+        lamda = 0.1
+        loss = contrastive_loss + saliency_loss + 0.1*cluster_loss
+
+
         contrastive_losses.update(contrastive_loss.item())
+        cluster_losses.update(cluster_loss.item())
         saliency_losses.update(saliency_loss.item())
         losses.update(loss.item())
         
@@ -102,13 +122,13 @@ def train(args, logger, dataloader, model, classifier, optimizer, criterion, dev
         if i_batch % 25 == 0:
             progress.display(i_batch)
     
-    with torch.no_grad():
-      model.momentum_update_key_encoder()
+    
     
     writer_path = os.path.join(args.save_model_path, "runs")
     writer = SummaryWriter(log_dir=writer_path)
     writer.add_scalar('total loss', losses.avg, epoch)
     writer.add_scalar('contrastive loss', contrastive_losses.avg, epoch)
+    writer.add_scalar('cluster loss', cluster_losses.avg, epoch)
     writer.add_scalar('saliency loss', saliency_losses.avg, epoch)
     writer.add_scalar('kmeans loss', kmloss, epoch)
     writer.close()
@@ -139,7 +159,8 @@ def main(args, logger):
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
                                                 worker_init_fn=worker_init_fn(args.seed),
-                                                drop_last=True)
+                                                # drop_last=True
+                                                )
 
     testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
     testloader = torch.utils.data.DataLoader(testset,
@@ -148,7 +169,9 @@ def main(args, logger):
                                              num_workers=args.num_workers,
                                              pin_memory=True,
                                              worker_init_fn=worker_init_fn(args.seed),
-                                             drop_last=True)
+                                            #  drop_last=True
+                                             )
+
 
     
     # Train start.
@@ -165,21 +188,24 @@ def main(args, logger):
         ## Compute cluster assignment. 
         t2 = t.time()
         weight = compute_labels(args, logger, trainloader, model, centroids, device=device) 
+        
+        # np.save('/content/drive/MyDrive/UCS_local_2/Clustering-Segmentation/results/weight.npy', weight.cpu().numpy())
+
         logger.info('-Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         ## Criterion. 
         # criterion = torch.nn.CrossEntropyLoss(weight=weight).cuda()
-        criterion = torch.nn.CrossEntropyLoss().to(device)
+        # criterion = torch.nn.CrossEntropyLoss(reduction='mean').to(device)
 
 
-        # Set nonparametric classifier.
+        ## Set nonparametric classifier.
         classifier = initialize_classifier(args)
         classifier = classifier.to(device)
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
         del centroids
 
-        # Set trainset to get pseudolabel
+        ## Set trainset to get pseudolabel
         trainset.mode  = 'label'
         trainset.labeldir = args.save_model_path
         trainloader_loop  = torch.utils.data.DataLoader(trainset, 
@@ -188,13 +214,14 @@ def main(args, logger):
                                                         num_workers=args.num_workers,
                                                         pin_memory=True,
                                                         # collate_fn=collate_train_baseline,
-                                                        worker_init_fn=worker_init_fn(args.seed)
+                                                        worker_init_fn=worker_init_fn(args.seed),
+                                                        drop_last=True,
                                                         )
 
 
         logger.info('Start training ...\n')
         t2 = t.time()
-        train_loss = train(args, logger, trainloader, model, classifier, optimizer, criterion, device, epoch, kmloss) 
+        train_loss = train(args, logger, trainloader_loop, model, classifier, optimizer, device, epoch, kmloss) 
         logger.info('Finish training ...\n')
 
         if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):

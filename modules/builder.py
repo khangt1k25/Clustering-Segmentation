@@ -69,7 +69,8 @@ class ContrastiveModel(nn.Module):
 
 
     def forward(self, im_q, sal_q, im_k, sal_k, classfier, label):
-        
+        # print(torch.unique(label))
+
         batch_size, dim, H, W = im_q.shape
     
         q, q_bg = self.model_q(im_q)         # queries: B x dim x H x W
@@ -82,9 +83,9 @@ class ContrastiveModel(nn.Module):
         probs = classfier(q) # BxCxHxW
         probs = probs.permute((0, 2, 3, 1))
         probs = torch.reshape(probs, [-1, probs.shape[-1]]) # BHW x C
-        label =  torch.reshape(label, [-1, ]) #BHW 
+        label =  label.view(-1, ) #BHW 
         
-
+      
 
         with torch.no_grad():
             offset = torch.arange(0, 2 * batch_size, 2).to(sal_q.device)
@@ -103,43 +104,46 @@ class ContrastiveModel(nn.Module):
             
             prototypes_obj = torch.bmm(k, sal_k).squeeze() # B x dim
             prototypes_obj = nn.functional.normalize(prototypes_obj, dim=1) 
+        
+        negatives = self.obj_queue.clone().detach()         # dim x K
 
         # compute pixel-level loss
-        q = q.permute((0, 2, 3, 1))          # queries: B x H x W x dim 
-        q = torch.reshape(q, [-1, self.dim]) # queries: BHW x dim
+        q = q.permute((0, 2, 3, 1))          # B x H x W x dim 
+        q = torch.reshape(q, [-1, self.dim]) # BHW x dim
         q = torch.index_select(q, index=mask_indexes, dim=0)  # pixels x dim
         
-        probs = torch.index_select(probs, index=mask_indexes, dim=0) # pixels x C
-        label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
+        l_batch = torch.matmul(q, prototypes_obj.t()) # pixels x B
+        l_bank = torch.matmul(q, negatives) # pixels x K
+        logits = torch.cat([l_batch, l_bank], dim=1) # pixels x (B+K)
 
-        opt = True # 1:do not push away other cluster
+        # compute cluster loss : Not use bg
+        probs = torch.index_select(probs, index=mask_indexes, dim=0) # pixels x C
+        label = torch.index_select(label, index=mask_indexes, dim=0) 
+        opt = False # 1:do not push away other cluster
         if opt:
             label = (label -1).long()
             label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
             probs = probs.gather(1, label.view(-1, 1))
-            label = torch.zeros(probs.shape[0]).cuda()
+            label = torch.zeros(probs.shape[0]).detach()
         else:
-            label = (label -1).long()
+            label = (label -1).long().detach() # pixels
         
 
 
-        batch_logits = torch.matmul(q, prototypes_obj.t()) #pixels x B
-        mask = torch.ones_like(batch_logits).scatter_(1, sal_q.unsqueeze(1), 0.)
-        batch_logits = batch_logits[mask.bool()].view(batch_logits.shape[0], -1)
+        mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
+        l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)
+        
+        
+        cluster_logits  = torch.cat([probs, l_batch_negatives, l_bank], dim=1) # pixels x (cluster+ B-1+K)
         
 
-
-        bank_obj = self.obj_queue.clone().detach()         # dim x negatives
-        bank_logits =  torch.matmul(q, bank_obj)          # pixels x negatives
-        
-        logits  = torch.cat([probs, batch_logits, bank_logits], dim=1) # pixels x (cluster+ negatives)
-        
         self._dequeue_and_enqueue(prototypes_obj) 
 
 
         logits /= self.T
+        cluster_logits /= self.T
         
-        return logits, label.long(), sal_loss
+        return logits, sal_q.long(), cluster_logits, label.long(), sal_loss
 
 
 

@@ -124,9 +124,9 @@ def get_result_metrics(histogram):
 
     return result
 
-def compute_negative_euclidean(featmap, sal,  centroids, metric_function):
+def compute_negative_euclidean(featmap,  centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
-    return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))*sal.unsqueeze(1)
+    return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))
     
 
 def get_metric_as_conv(centroids, device):
