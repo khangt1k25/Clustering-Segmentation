@@ -165,7 +165,7 @@ def main(args, logger):
         t1 = t.time()
         centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, view=1)
         logger.info('-Centroids ready. [{}]\n'.format(get_datetime(int(t.time())-int(t1))))
-
+        
         # Compute cluster assignment. 
         t2 = t.time()
         weight = compute_labels(args, logger, trainloader, model, centroids, view=1) 

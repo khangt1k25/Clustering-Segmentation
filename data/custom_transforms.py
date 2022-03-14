@@ -14,14 +14,17 @@ class BaseTransform(object):
     def __init__(self, res):
         self.res = res 
         
-    def __call__(self, index, image):
+    def __call__(self, index, image, sal):
         image = TF.resize(image, self.res, Image.BILINEAR)
+        sal = TF.resize(sal, self.res, Image.NEAREST)
         w, h  = image.size
         left  = int(round((w - self.res) / 2.))
         top   = int(round((h - self.res) / 2.))
 
-        return TF.crop(image, top, left, self.res, self.res)
+        return TF.crop(image, top, left, self.res, self.res), TF.crop(sal, top, left, self.res, self.res)
 
+    
+    
 
 class ComposeTransform(object):
     def __init__(self, tlist):
@@ -66,15 +69,16 @@ class RandomHorizontalFlip(object):
 
 
 class TensorTransform(object):
-    def __init__(self):
+    def __init__(self, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
         self.to_tensor = transforms.ToTensor()
-        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    
-    def __call__(self, image):
+        self.normalize = transforms.Normalize(mean=mean, std=std)
+        
+    def __call__(self, image, sal):
         image = self.to_tensor(image)
+        sal = self.to_tensor(sal)
         image = self.normalize(image)
-
-        return image
+    
+        return image, sal
         
         
 class RandomGaussianBlur(object):
@@ -175,15 +179,11 @@ class RandomVerticalFlip(object):
         self.p_ref = p
         self.plist = np.random.random_sample(N)
         
-    def __call__(self, indice, image):
-        I = np.nonzero(self.plist[indice] < self.p_ref)[0]
-
-        if len(image.size()) == 3:
-            image_t = image[I].flip([1]) 
-        else:
-            image_t = image[I].flip([2])
-        
-        return torch.stack([image_t[np.where(I==i)[0][0]] if i in I else image[i] for i in range(image.size(0))])
+    def __call__(self, indice, image, sal):
+        if self.plist[indice] < self.p_ref:
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            sal = sal.transpose(Image.FLIP_TOP_BOTTOM)
+        return image, sal
 
 
 
@@ -192,18 +192,15 @@ class RandomHorizontalTensorFlip(object):
         self.p_ref = p
         self.plist = np.random.random_sample(N)
 
-    def __call__(self, indice, image, is_label=False):
-        I = np.nonzero(self.plist[indice] < self.p_ref)[0]
+    def __call__(self, indice, image, sal, is_label=False):
+        if self.plist[indice] < self.p_ref:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            sal = sal.transpose(Image.FLIP_LEFT_RIGHT)
         
-        if len(image.size()) == 3:
-            image_t = image[I].flip([2])
-        else:
-            image_t = image[I].flip([3])
-        
-        return torch.stack([image_t[np.where(I==i)[0][0]] if i in I else image[i] for i in range(image.size(0))])
+        return image, sal
 
 
-
+# We don't use it
 class RandomResizedCrop(object):
     def __init__(self, N, res, scale=(0.5, 1.0)):
         self.res    = res
@@ -211,30 +208,32 @@ class RandomResizedCrop(object):
         self.rscale = [np.random.uniform(*scale) for _ in range(N)]
         self.rcrop  = [(np.random.uniform(0, 1), np.random.uniform(0, 1)) for _ in range(N)]
 
-    def random_crop(self, idx, img):
+    def random_crop(self, idx, img, sal):
         ws, hs = self.rcrop[idx]
         res1 = int(img.size(-1))
         res2 = int(self.rscale[idx]*res1)
         i1 = int(round((res1-res2)*ws))
         j1 = int(round((res1-res2)*hs))
 
-        return img[:, :, i1:i1+res2, j1:j1+res2]
+        return img[:, :, i1:i1+res2, j1:j1+res2], sal[:, :, i1:i1+res2, j1:j1+res2]
 
 
-    def __call__(self, indice, image):
+    def __call__(self, indice, image, sal):
         new_image = []
+        new_sal = []
         res_tar   = self.res // 4 if image.size(1) > 5 else self.res # View 1 or View 2? 
         
         for i, idx in enumerate(indice):
             img = image[[i]]
-            img = self.random_crop(idx, img)
+            img, sal = self.random_crop(idx, img, sal)
             img = F.interpolate(img, res_tar, mode='bilinear', align_corners=False)
-
+            sal = F.interpolate(sal, res_tar, mode='nearest', align_corners=False)
             new_image.append(img)
-
+            new_sal.append(sal)
         new_image = torch.cat(new_image)
-        
-        return new_image
+        new_sal = torch.cat(new_sal)
+
+        return new_image, new_sal
 
 
 

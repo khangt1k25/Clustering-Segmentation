@@ -1,30 +1,34 @@
+from functools import reduce
 import os 
 import numpy as np 
 import torch 
 import torch.nn as nn 
 
-from sklearn.utils.linear_assignment_ import linear_assignment
-from modules import fpn 
+from scipy.optimize import linear_sum_assignment as linear_assignment
+
+# from modules import fpn 
 from utils import *
 
 import warnings
 warnings.filterwarnings('ignore')
 
-def get_model_and_optimizer(args, logger):
+def get_model_and_optimizer(args, logger, device):
+    
     # Init model 
-    model = fpn.PanopticFPN(args)
-    model = nn.DataParallel(model)
-    model = model.cuda()
-
-    # Init classifier (for eval only.)
-    classifier = initialize_classifier(args)
+    
+    from modules.builder import ContrastiveModel
+    model = ContrastiveModel(args)
+    model = model.to(device)
+    
+    classifier = initialize_classifier(args, split='train')
+    classifier = classifier.to(device)
 
     # Init optimizer 
     if args.optim_type == 'SGD':
-        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.module.parameters()), lr=args.lr, \
-                                    momentum=args.momentum, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, \
+                                    momentum=args.momentum, weight_decay=args.weight_decay, nesterov=False)
     elif args.optim_type == 'Adam':
-        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.module.parameters()), lr=args.lr)
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, nesterov=False)
 
     # optional restart. 
     args.start_epoch  = 0 
@@ -35,9 +39,8 @@ def get_model_and_optimizer(args, logger):
         if os.path.isfile(load_path):
             checkpoint  = torch.load(load_path)
             args.start_epoch = checkpoint['epoch']
-
             model.load_state_dict(checkpoint['state_dict'])
-            classifier.load_state_dict(checkpoint['classifier1_state_dict'])
+            classifier.load_state_dict(checkpoint['classifier_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info('Loaded checkpoint. [epoch {}]'.format(args.start_epoch))
         else:
@@ -47,69 +50,88 @@ def get_model_and_optimizer(args, logger):
 
 
 
-def run_mini_batch_kmeans(args, logger, dataloader, model, view):
-    """
-    num_init_batches: (int) The number of batches/iterations to accumulate before the initial k-means clustering.
-    num_batches     : (int) The number of batches/iterations to accumulate before the next update. 
-    """
-    kmeans_loss  = AverageMeter()
+
+
+
+
+def get_optimizer(args, parameters):
+    # Init optimizer 
+    if args.optim_type == 'SGD':
+        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, parameters), lr=args.lr, \
+                                    momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.optim_type == 'Adam':
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, parameters), lr=args.lr)
+    
+    return optimizer
+
+
+def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'):
+    '''
+    Clustering for Key view
+    '''
+    kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    data_count   = np.zeros(args.K_train)
+    
+    if split=='train':
+        K = args.K_train
+    elif split == 'test':
+        K = args.K_test
+    
+    data_count   = np.zeros(K)
     featslist    = []
     num_batches  = 0
-    first_batch  = True
+    first_batch  = True    
+    isreduce = (args.reducer > 0)
     
-    # Choose which view it is now. 
-    dataloader.dataset.view = view
-
     model.eval()
     with torch.no_grad():
-        for i_batch, (indice, image) in enumerate(dataloader):
-            # 1. Compute initial centroids from the first few batches. 
-            if view == 1:
-                image = eqv_transform_if_needed(args, dataloader, indice, image.cuda(non_blocking=True))
-                feats = model(image)
-            elif view == 2:
-                image = image.cuda(non_blocking=True)
-                feats = eqv_transform_if_needed(args, dataloader, indice, model(image))
-            else:
-                # For evaluation. 
-                image = image.cuda(non_blocking=True)
-                feats = model(image)
+        for i_batch, (_, _, _, _, img_k, sal_k) in enumerate(dataloader):
+            
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+            k, _ = model.model_k(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
+            batch_size = k.shape[0]
+            k = k.permute((0, 2, 3, 1))          # queries: B x H x W x dim 
+            k = torch.reshape(k, [-1, args.ndim]) # queries: BHW x dim
+            
+            # Drop background pixels
+            offset = torch.arange(0, 2 * batch_size, 2).to(sal_k.device)
+            sal_k = (sal_k + torch.reshape(offset, [-1, 1, 1]))*sal_k 
+            sal_k = sal_k.view(-1)
+            mask_indexes = torch.nonzero((sal_k)).view(-1).squeeze()
+    
+            if isreduce:
+                reducer_idx = torch.randperm(mask_indexes.shape[0])[:args.reducer*batch_size]
+                mask_indexes = mask_indexes[reducer_idx]
+            
+            k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() 
+            
 
-            # Normalize.
-            if args.metric_test == 'cosine':
-                feats = F.normalize(feats, dim=1, p=2)
-            
             if i_batch == 0:
-                logger.info('Batch input size : {}'.format(list(image.shape)))
-                logger.info('Batch feature : {}'.format(list(feats.shape)))
+                logger.info('Batch feature : {}'.format(list(k.shape)))
             
-            feats = feature_flatten(feats).detach().cpu()
             if num_batches < args.num_init_batches:
-                featslist.append(feats)
+                featslist.append(k)
                 num_batches += 1
-                
                 if num_batches == args.num_init_batches or num_batches == len(dataloader):
                     if first_batch:
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
                         featslist = torch.cat(featslist).cpu().numpy().astype('float32')
-                        centroids = get_init_centroids(args, args.K_train, featslist, faiss_module).astype('float32')
+                        centroids = get_init_centroids(args, K, featslist, faiss_module).astype('float32')
                         D, I = faiss_module.search(featslist, 1)
-
                         kmeans_loss.update(D.mean())
                         logger.info('Initial k-means loss: {:.4f} '.format(kmeans_loss.avg))
-                        
                         # Compute counts for each cluster. 
                         for k in np.unique(I):
                             data_count[k] += len(np.where(I == k)[0])
                         first_batch = False
+
+                        # break # discard this 
                     else:
                         b_feat = torch.cat(featslist)
                         faiss_module = module_update_centroids(faiss_module, centroids)
                         D, I = faiss_module.search(b_feat.numpy().astype('float32'), 1)
-
                         kmeans_loss.update(D.mean())
 
                         # Update centroids. 
@@ -125,115 +147,187 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, view):
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
-
-    centroids = torch.tensor(centroids, requires_grad=False).cuda()
+    
+    del faiss_module
+    centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg
 
 
+def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train'):
+    '''
+    Clustering for Key view
+    '''
+    kmeans_loss  = AverageMeter('kmean loss')
+    faiss_module = get_faiss_module(args)
+    
+    if split=='train':
+        K = args.K_train
+    elif split == 'test':
+        K = args.K_test
+    
+    data_count   = np.zeros(K)
+    featslist    = []
+    num_batches  = 0
+    first_batch  = True    
+    isreduce = (args.reducer > 0)
+    
+    model.eval()
+    with torch.no_grad():
+        for i_batch, (_, img_k, sal_k) in enumerate(dataloader):
+            
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+            k, _ = model.model_q(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
+            batch_size = k.shape[0]
+            k = k.permute((0, 2, 3, 1))          # queries: B x H x W x dim 
+            k = torch.reshape(k, [-1, args.ndim]) # queries: BHW x dim
+            
+            # Drop background pixels
+            offset = torch.arange(0, 2 * batch_size, 2).to(sal_k.device)
+            sal_k = (sal_k + torch.reshape(offset, [-1, 1, 1]))*sal_k 
+            sal_k = sal_k.view(-1)
+            mask_indexes = torch.nonzero((sal_k)).view(-1).squeeze()
+    
+            if isreduce:
+                reducer_idx = torch.randperm(mask_indexes.shape[0])[:args.reducer*batch_size]
+                mask_indexes = mask_indexes[reducer_idx]
+            
+            k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() 
+            
+
+            if i_batch == 0:
+                logger.info('Batch feature : {}'.format(list(k.shape)))
+            
+            if num_batches < args.num_init_batches:
+                featslist.append(k)
+                num_batches += 1
+                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                    if first_batch:
+                        # Compute initial centroids. 
+                        # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
+                        featslist = torch.cat(featslist).cpu().numpy().astype('float32')
+                        centroids = get_init_centroids(args, K, featslist, faiss_module).astype('float32')
+                        D, I = faiss_module.search(featslist, 1)
+                        kmeans_loss.update(D.mean())
+                        logger.info('Initial k-means loss: {:.4f} '.format(kmeans_loss.avg))
+                        # Compute counts for each cluster. 
+                        for k in np.unique(I):
+                            data_count[k] += len(np.where(I == k)[0])
+                        first_batch = False
+
+                        # break # discard this 
+                    else:
+                        b_feat = torch.cat(featslist)
+                        faiss_module = module_update_centroids(faiss_module, centroids)
+                        D, I = faiss_module.search(b_feat.numpy().astype('float32'), 1)
+                        kmeans_loss.update(D.mean())
+
+                        # Update centroids. 
+                        for k in np.unique(I):
+                            idx_k = np.where(I == k)[0]
+                            data_count[k] += len(idx_k)
+                            centroid_lr    = len(idx_k) / (data_count[k] + 1e-6)
+                            centroids[k]   = (1 - centroid_lr) * centroids[k] + centroid_lr * b_feat[idx_k].mean(0).numpy().astype('float32')
+                    
+                    # Empty. 
+                    featslist   = []
+                    num_batches = args.num_init_batches - args.num_batches
+
+            if (i_batch % 100) == 0:
+                logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
+    
+    del faiss_module
+    centroids = torch.tensor(centroids, requires_grad=False).to(device)
+
+    return centroids, kmeans_loss.avg
 
 
-def compute_labels(args, logger, dataloader, model, centroids, view):
+def compute_labels(args, logger, dataloader, model, centroids, device):
     """
-    Label all images for each view with the obtained cluster centroids. 
+    Label for Query view
     The distance is efficiently computed by setting centroids as convolution layer. 
     """
-    K = centroids.size(0)
-
-    # Choose which view it is now. 
-    dataloader.dataset.view = view
+    K = centroids.size(0) + 1
 
     # Define metric function with conv layer. 
-    metric_function = get_metric_as_conv(centroids)
-
+    metric_function = get_metric_as_conv(centroids, device)
     counts = torch.zeros(K, requires_grad=False).cpu()
     model.eval()
     with torch.no_grad():
-        for i, (indice, image) in enumerate(dataloader):
-            if view == 1:
-                image = eqv_transform_if_needed(args, dataloader, indice, image.cuda(non_blocking=True))
-                feats = model(image)
-            elif view == 2:
-                image = image.cuda(non_blocking=True)
-                feats = eqv_transform_if_needed(args, dataloader, indice, model(image))
+        for i_batch, (indice, img_q, sal_q, _, _, _) in enumerate(dataloader):
+            img_q, sal_q = img_q.cuda(non_blocking=True), sal_q.cuda(non_blocking=True)
+            q, _ = model.model_q(img_q) # Bx dim x H x W
+            q = nn.functional.normalize(q, dim=1)
 
-            # Normalize.
-            if args.metric_train == 'cosine':
-                feats = F.normalize(feats, dim=1, p=2)
-
-            B, C, H, W = feats.shape
-            if i == 0:
+            if i_batch == 0:
                 logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-                logger.info('Batch input size   : {}'.format(list(image.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(feats.shape)))
+                logger.info('Batch input size   : {}'.format(list(img_q.shape)))
+                logger.info('Batch feature size : {}\n'.format(list(q.shape)))
 
             # Compute distance and assign label. 
-            scores  = compute_negative_euclidean(feats, centroids, metric_function) 
+            scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
 
             # Save labels and count. 
             for idx, idx_img in enumerate(indice):
-                counts += postprocess_label(args, K, idx, idx_img, scores, n_dual=view)
-
-            if (i % 200) == 0:
-                logger.info('[Assigning labels] {} / {}'.format(i, len(dataloader)))
+                counts += postprocess_label(args, K, idx, idx_img, scores, sal_q, view='query')
+            
+            if (i_batch % 200) == 0:
+                logger.info('[Assigning labels] {} / {}'.format(i_batch, len(dataloader)))
+    
     weight = counts / counts.sum()
-
+        
     return weight
 
 
-def evaluate(args, logger, dataloader, classifier, model):
-    logger.info('====== METRIC TEST : {} ======\n'.format(args.metric_test))
-    histogram = np.zeros((args.K_test, args.K_test))
+def evaluate(args, logger, dataloader, model, classifier, device):
 
+    num_classes = args.K_test + 1 # count bg
+
+    histogram = np.zeros((num_classes, num_classes))
+    
     model.eval()
     classifier.eval()
     with torch.no_grad():
-        for i, (_, image, label) in enumerate(dataloader):
-            image = image.cuda(non_blocking=True)
-            feats = model(image)
+        for i_batch, (_, img, label) in enumerate(dataloader):
+            img= img.to(device)
+            q, q_bg = model.model_q(img)
 
-            if args.metric_test == 'cosine':
-                feats = F.normalize(feats, dim=1, p=2)
+            q = nn.functional.normalize(q, dim=1) # BxdimxHxW
+            q_bg = (q_bg > 0.5).float()
+
+            probs = classifier(q) #BxdimxHxW
+            preds = probs.topk(1, dim=1)[1].squeeze() #BxHxW
+            preds = ((preds  + 1) * q_bg.float()).long() #BxHxW
+            preds = F.interpolate(preds, label.shape[-2:], mode='nearest', align_corners=False)
             
-            B, C, H, W = feats.size()
-            if i == 0:
-                logger.info('Batch input size   : {}'.format(list(image.shape)))
-                logger.info('Batch label size   : {}'.format(list(label.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(feats.shape)))
+            preds = preds.view(-1).cpu().numpy()
+            label = label.view(-1).cpu().numpy()
 
-            probs = classifier(feats)
-            probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
-            preds = probs.topk(1, dim=1)[1].view(B, -1).cpu().numpy()
-            label = label.view(B, -1).cpu().numpy()
 
-            histogram += scores(label, preds, args.K_test)
+            valid_preds = preds[label != 255]
+            valid_label = label[label != 255]
+
+
+            histogram += scores(valid_label, valid_preds, num_classes)
             
-            if i%20==0:
-                logger.info('{}/{}'.format(i, len(dataloader)))
+            if i_batch%20==0:
+                logger.info('{}/{}'.format(i_batch, len(dataloader)))
     
     # Hungarian Matching. 
     m = linear_assignment(histogram.max() - histogram)
-
+    
     # Evaluate. 
-    acc = histogram[m[:, 0], m[:, 1]].sum() / histogram.sum() * 100
+    match = np.array(list(zip(*m)))
+    acc = histogram[match[:, 0], match[:, 1]].sum() / histogram.sum() * 100
 
-    new_hist = np.zeros((args.K_test, args.K_test))
-    for idx in range(args.K_test):
-        new_hist[m[idx, 1]] = histogram[idx]
+    new_hist = np.zeros((num_classes, num_classes))
+    for idx in range(num_classes):
+        new_hist[match[idx, 1]] = histogram[idx]
     
-    # NOTE: Now [new_hist] is re-ordered to 12 thing + 15 stuff classses. 
-    res1 = get_result_metrics(new_hist)
-    logger.info('ACC  - All: {:.4f}'.format(res1['overall_precision (pixel accuracy)']))
-    logger.info('mIOU - All: {:.4f}'.format(res1['mean_iou']))
 
-    # For Table 2 - partitioned evaluation.
-    if args.thing and args.stuff:
-        res2 = get_result_metrics(new_hist[:12, :12])
-        logger.info('ACC  - Thing: {:.4f}'.format(res2['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Thing: {:.4f}'.format(res2['mean_iou']))
+    res = get_result_metrics(new_hist)
 
-        res3 = get_result_metrics(new_hist[12:, 12:])
-        logger.info('ACC  - Stuff: {:.4f}'.format(res3['overall_precision (pixel accuracy)']))
-        logger.info('mIOU - Stuff: {:.4f}'.format(res3['mean_iou']))
-    
-    return acc, res1
+    return acc, res
+
+

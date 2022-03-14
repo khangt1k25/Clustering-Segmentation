@@ -24,58 +24,105 @@ class GaussianBlur(object):
 
 
 class EvalPASCAL(data.Dataset):
-    def __init__(self, root, split, mode, res=128, transform_list=[], label=True, stuff=True, thing=False):
+    VOC_CATEGORY_NAMES = ['background',
+                          'aeroplane', 'bicycle', 'bird', 'boat', 'bottle',
+                          'bus', 'car', 'cat', 'chair', 'cow',
+                          'diningtable', 'dog', 'horse', 'motorbike', 'person',
+                          'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
+
+    GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
+    FILE = 'PASCAL_VOC.tgz'
+    DB_NAME = 'VOCSegmentation'
+    def __init__(self, root, split='val', res=224, transform_list=[], download=False):
+        
         self.root  = root 
         self.split = split
-        self.mode  = mode
-        self.res   = res 
-        self.imdb  = self.load_imdb()
-        self.stuff = stuff 
-        self.thing = thing 
-        self.label = label
-        self.view  = -1
-
-        # For test-time augmentation / robustness test. 
-        self.transform_list = transform_list
+        self.res = res
+        self.transform_list = transform_list  
         
-    def load_imdb(self):
-        # 1. Setup filelist
-        # imdb = os.path.join(self.root, 'curated', '{}2017'.format(self.split), 'Coco164kFull_Stuff_Coarse_7.txt')
-        # imdb = tuple(open(imdb, "r"))
-        # imdb = [id_.rstrip() for id_ in imdb]
+        if download:
+            self._download()
         
-        path_to_train = os.path.join(self.root, 'sets', '{}.txt'.format(self.split))
 
-        with open(path_to_train, 'r') as f:
-            imdb = f.read().splitlines()
+        with open(os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split)), 'r') as f:
+            lines = f.read().splitlines()
         
-        return imdb
+       
+        _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
+        _sal_dir = os.path.join(self.root, self.DB_NAME, 'saliency_unsupervised_model')
+        _label_dir = os.path.join(self.root, self.DB_NAME, 'SegmentationClass')
+        
+        self.images = []
+        # self.sals = []
+        self.labels = []
+        for ii, line in enumerate(lines):
+            _image = os.path.join(_image_dir, line + ".jpg")
+            # _sal = os.path.join(_sal_dir, line + ".png")
+            _label = os.path.join(_label_dir, line + ".png")
+            if os.path.isfile(_image) and os.path.isfile(_label):
+                self.images.append(_image)
+                # self.sals.append(_sal)
+                self.labels.append(_label)
 
-        return imdb
+        # assert(len(self.images) == len(self.sals))
+        assert(len(self.images) == len(self.labels))
+
+        ignore_classes = []
+        self.ignore_classes = [self.VOC_CATEGORY_NAMES.index(class_name) for class_name in ignore_classes]
+
+
+
+
+    def _download(self):
+        
+    
+        _fpath = os.path.join(self.root, self.FILE)
+
+        if os.path.isfile(_fpath):
+            print('Files already downloaded')
+            return
+        else:
+            print('Downloading dataset from google drive')
+            mkdir_if_missing(os.path.dirname(_fpath))
+            download_file_from_google_drive(self.GOOGLE_DRIVE_ID, _fpath)
+
+        # extract file
+        cwd = os.getcwd()
+        print('\nExtracting tar file')
+        tar = tarfile.open(_fpath)
+        os.chdir(os.path.join(self.root))
+        tar.extractall()
+        tar.close()
+        os.chdir(cwd)
+        print('Done!')
+
+    
+
+
+    def load_data(self, index):
+        _image = Image.open(self.images[index]).convert('RGB')
+        # _sal = Image.open(self.sals[index])
+        _semseg = Image.open(self.labels[index])
+        return _image, _semseg
     
     def __getitem__(self, index):
-        image_id = self.imdb[index]
-        img, lbl = self.load_data(image_id)
+        
+        
+        image,  label = self.load_data(index)
+        image,  label = self.transform_data(image,  label)
+        
+        # sal = sal.squeeze().long()
+        # if len(sal.shape) == 3:
+        #     sal = sal[0]
 
-        return (index,) + self.transform_data(img, lbl, index)
+        return index, image, label
 
-    def load_data(self, image_id):
-        """
-        Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
-        """
-        N = len(self.imdb)
-        image_path = os.path.join(self.root, 'images', '{}.jpg'.format(image_id))
-        label_path = os.path.join(self.root, 'SegmentationClassAug', '{}.jpg'.format(image_id))
-
-        image = Image.open(image_path).convert('RGB')
-        label = Image.open(label_path)
-
-        return image, label
-
-    def transform_data(self, image, label, index):
+   
+    def transform_data(self, image, label):
 
         # 1. Resize
         image = TF.resize(image, self.res, Image.BILINEAR)
+        # sal = TF.resize(sal, self.res, Image.NEAREST)
         label = TF.resize(label, self.res, Image.NEAREST)
         
         # 2. CenterCrop
@@ -84,49 +131,20 @@ class EvalPASCAL(data.Dataset):
         top  = int(round((h - self.res) / 2.))
 
         image = TF.crop(image, top, left, self.res, self.res)
+        # sal = TF.crop(sal, top, left, self.res, self.res)
         label = TF.crop(label, top, left, self.res, self.res)
 
         # 3. Transformation
-        image = self._image_transform(image, self.mode)
-        if not self.label:
-            return (image, None)
+        transform_image, totensor = self._get_data_transformation()
+        image = transform_image(image)
+        
+        # sal= totensor(sal)
 
-        label = self._label_transform(label)
+        label = np.array(label)
+        label = torch.from_numpy(label).long()
 
         return image, label
 
-    def _label_transform(self, label):
-        """
-        In COCO-Stuff, there are 91 Things and 91 Stuff. 
-            91 Things (0-90)  => 12 superclasses (0-11)
-            91 Stuff (91-181) => 15 superclasses (12-26)
-
-        For [Stuff-15], which is the benchmark IIC uses, we only use 15 stuff superclasses.
-        """
-        label = np.array(label)
-        # # label = self.fine_to_coarse(label)    # Map to superclass indexing.
-        # mask  = label >= 255 # Exclude unlabelled.
-        
-        # # Start from zero. 
-        # if self.stuff and not self.thing:
-        #     label[mask] -= 12 # This makes all Things categories negative (ignored.)
-        # elif self.thing and not self.stuff:
-        #     mask = label > 11 # This makes all Stuff categories negative (ignored.)
-        #     label[mask] = -1
-            
-        # Tensor-fy
-        label = torch.LongTensor(label)                            
-
-        return label
-
-
-    def _image_transform(self, image, mode):
-        if self.mode == 'test':
-            transform = self._get_data_transformation()
-
-            return transform(image)
-        else:
-            raise NotImplementedError()
 
 
     def _get_data_transformation(self):
@@ -140,13 +158,40 @@ class EvalPASCAL(data.Dataset):
         
         # Base transformation
         trans_list += [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
-
-        return transforms.Compose(trans_list)
+        
+        return transforms.Compose(trans_list), transforms.ToTensor()
     
     def __len__(self):
-        return len(self.imdb)
-        
+        return len(self.images)
+
 
   
-            
-       
+if __name__ == '__main__':
+    testset    = EvalPASCAL(root='PASCAL_VOC', res=224, split='val', transform_list=['jitter', 'blur', 'grey'])
+    
+    index, img, label = testset[0]
+    print(img.shape)
+    # print(label.shape)
+    # label.show()
+    # x = np.array(label)
+    # print(np.unique(x))
+    print(torch.unique(label))
+    topil = transforms.ToPILImage()
+    # topil(img).show()
+    topil(label.float()).show()
+    
+    # print(torch.unique(sal))
+    testloader = torch.utils.data.DataLoader(testset,
+                                             batch_size=32,
+                                             shuffle=False,
+                                             num_workers=2,
+                                             pin_memory=True)
+
+    for i, (index, img, sal, label) in enumerate(testloader):
+        print(img.shape)
+        print(sal.shape)
+        print(label.shape)
+        print(index.shape)
+        print(label[0])
+        break
+    

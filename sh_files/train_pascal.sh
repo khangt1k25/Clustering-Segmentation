@@ -1,7 +1,7 @@
 K_train=21
 K_test=21
-bsize=256
-num_epoch=2
+bsize=32
+num_epoch=10
 KM_INIT=20
 KM_NUM=1
 KM_ITER=20
@@ -11,8 +11,9 @@ LR=1e-4
 mkdir -p results/picie/train/${SEED}
 
 python train_pascal.py \
---data_root PASCAL_VOC/VOCSegmentation \
+--data_root PASCAL_VOC \
 --save_root results/pascal/train/${SEED} \
+--arch resnet50
 --pretrain \
 --repeats 1 \
 --lr ${LR} \
@@ -24,5 +25,5 @@ python train_pascal.py \
 --stuff --thing  \
 --batch_size_cluster ${bsize} \
 --num_epoch ${num_epoch} \
---res 320 --res1 320 --res2 640 \
+--res 224 --res1 224 --res2 448 \
 --augment --jitter --blur --grey --equiv --random_crop --h_flip 

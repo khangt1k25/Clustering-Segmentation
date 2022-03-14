@@ -6,8 +6,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-# import faiss 
+import torch.backends.cudnn as cudnnk
+import faiss 
 
 ################################################################################
 #                                  General-purpose                             #
@@ -49,8 +49,9 @@ class Logger(object):
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
         self.reset()
 
     def reset(self):
@@ -64,6 +65,11 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
 
 
 def get_datetime(time_delta):
@@ -94,7 +100,8 @@ def _fast_hist(label_true, label_pred, n_class):
 def scores(label_trues, label_preds, n_class):
     hist = np.zeros((n_class, n_class))
     for lt, lp in zip(label_trues, label_preds):
-        hist += _fast_hist(lt.flatten(), lp.flatten(), n_class)
+        # hist += _fast_hist(lt.flatten(), lp.flatten(), n_class)
+        hist[lt][lp] += 1 
     return hist
 
 
@@ -106,7 +113,7 @@ def get_result_metrics(histogram):
     iou = tp / (tp + fp + fn)
     prc = tp / (tp + fn) 
     opc = np.sum(tp) / np.sum(histogram)
-
+    
     result = {"iou": iou,
              "mean_iou": np.nanmean(iou),
              "precision_per_class (per class accuracy)": prc,
@@ -117,21 +124,17 @@ def get_result_metrics(histogram):
 
     return result
 
-def compute_negative_euclidean(featmap, centroids, metric_function):
+def compute_negative_euclidean(featmap,  centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
-    return - (1 - 2*metric_function(featmap)\
-                + (centroids*centroids).sum(dim=1).unsqueeze(0)) # negative l2 squared 
-
-
-def get_metric_as_conv(centroids):
-    N, C = centroids.size()
-
-    centroids_weight = centroids.unsqueeze(-1).unsqueeze(-1)
-    metric_function  = nn.Conv2d(C, N, 1, padding=0, stride=1, bias=False)
-    metric_function.weight.data = centroids_weight
-    metric_function = nn.DataParallel(metric_function)
-    metric_function = metric_function.cuda()
+    return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))
     
+
+def get_metric_as_conv(centroids, device):
+    C, dim = centroids.size()
+    centroids_weight = centroids.unsqueeze(-1).unsqueeze(-1)
+    metric_function  = nn.Conv2d(dim, C, 1, padding=0, stride=1, bias=False)
+    metric_function.weight.data = centroids_weight
+    metric_function = metric_function.to(device)
     return metric_function
 
 ################################################################################
@@ -139,15 +142,15 @@ def get_metric_as_conv(centroids):
 ################################################################################
 
 def freeze_all(model):
-    for param in model.module.parameters():
+    for param in model.parameters():
         param.requires_grad = False 
 
 
-def initialize_classifier(args):
-    classifier = get_linear(args.in_dim, args.K_train)
-    classifier = nn.DataParallel(classifier)
-    classifier = classifier.cuda()
-
+def initialize_classifier(args, split='train'):
+    if split == 'train':
+      classifier = get_linear(args.ndim, args.K_train)
+    else:
+      classifier = get_linear(args.ndim, args.K_test)
     return classifier
 
 def get_linear(indim, outdim):
@@ -177,18 +180,17 @@ def get_faiss_module(args):
     cfg = faiss.GpuIndexFlatConfig()
     cfg.useFloat16 = False 
     cfg.device     = 0 #NOTE: Single GPU only. 
-    idx = faiss.GpuIndexFlatL2(res, args.in_dim, cfg)
-
+    idx = faiss.GpuIndexFlatL2(res, args.ndim, cfg)
     return idx
 
 def get_init_centroids(args, K, featlist, index):
-    clus = faiss.Clustering(args.in_dim, K)
+    clus = faiss.Clustering(args.ndim, K)
     clus.seed  = np.random.randint(args.seed)
     clus.niter = args.kmeans_n_iter
     clus.max_points_per_centroid = 10000000
     clus.train(featlist, index)
 
-    return faiss.vector_float_to_array(clus.centroids).reshape(K, args.in_dim)
+    return faiss.vector_float_to_array(clus.centroids).reshape(K, args.ndim)
 
 def module_update_centroids(index, centroids):
     index.reset()
@@ -211,8 +213,9 @@ def fix_seed_for_reproducability(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
+    # cudnn.deterministic = True
+    # cudnn.benchmark = False
+    
 
 def worker_init_fn(seed):
     return lambda x: np.random.seed(seed + x)
@@ -221,24 +224,27 @@ def worker_init_fn(seed):
 #                               Training Pipelines                             #
 ################################################################################
 
-def postprocess_label(args, K, idx, idx_img, scores, n_dual):
-    out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
+def postprocess_label(args, K, idx, idx_img, scores, sal, view):
+    
+    # out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
 
-    # Save labels. 
-    if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(n_dual))):
-        os.makedirs(os.path.join(args.save_model_path, 'label_' + str(n_dual)))
-    torch.save(out, os.path.join(args.save_model_path, 'label_' + str(n_dual), '{}.pkl'.format(idx_img)))
+    out = (scores[idx].topk(1, dim=0)[1] + 1) * sal[idx]
+    out = out.flatten().long().detach().cpu().numpy()
+    
+    # Save labels.
+    if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(view))):
+        os.makedirs(os.path.join(args.save_model_path, 'label_' + str(view)))
+    torch.save(out, os.path.join(args.save_model_path, 'label_' + str(view), '{}.pkl'.format(idx_img)))
     
     # Count for re-weighting. 
     counts = torch.tensor(np.bincount(out, minlength=K)).float()
-
-    return counts
+    
+    return counts   
 
 
 def eqv_transform_if_needed(args, dataloader, indice, input):
     if args.equiv:
         input = dataloader.dataset.transform_eqv(indice, input)
-
     return input  
 
 
@@ -293,3 +299,19 @@ def collate_train_baseline(batch):
     image  = torch.stack([b[1] for b in batch])
 
     return indice, image
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'

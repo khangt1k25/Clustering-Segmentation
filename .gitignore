@@ -145,3 +145,7 @@ fine_to_coarse_dict.pickle
 gtFine_trainvaltest.zip
 VOCtrainval_11-May-2012.tar
 PASCAL_VOC/*
+dataset/*
+
+gtFine_trainvaltest/*
+models/*
