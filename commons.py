@@ -40,7 +40,7 @@ def get_model_and_optimizer(args, logger, device):
             checkpoint  = torch.load(load_path)
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
-            classifier.load_state_dict(checkpoint['classifier1_state_dict'])
+            classifier.load_state_dict(checkpoint['classifier_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info('Loaded checkpoint. [epoch {}]'.format(args.start_epoch))
         else:
@@ -194,32 +194,35 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
 
 
 def evaluate(args, logger, dataloader, model, classifier, device):
-    histogram = np.zeros((args.K_test, args.K_test))
-        
+
+    num_classes = args.K_test + 1 # count bg
+
+    histogram = np.zeros((num_classes, num_classes))
+    
     model.eval()
     classifier.eval()
     with torch.no_grad():
-        for i_batch, (indice, img, sal, label) in enumerate(dataloader):
-            img, sal = img.to(device), sal.to(device)
-            q, _ = model.model_q(img)
-            q = nn.functional.normalize(q, dim=1) # BxdimxHxW
-            probs = classifier(q) #BxdimxHxW
-            probs = F.interpolate(probs, label.shape[-2:], mode='bilinear', align_corners=False)
-            
-            preds = probs.topk(1, dim=1)[1].squeeze().view(-1).cpu().numpy()
+        for i_batch, (_, img, label) in enumerate(dataloader):
+            img= img.to(device)
+            q, q_bg = model.model_q(img)
 
+            q = nn.functional.normalize(q, dim=1) # BxdimxHxW
+            q_bg = (q_bg > 0.5).float()
+
+            probs = classifier(q) #BxdimxHxW
+            preds = probs.topk(1, dim=1)[1].squeeze() #BxHxW
+            preds = ((preds  + 1) * q_bg.float()).long() #BxHxW
+            preds = F.interpolate(preds, label.shape[-2:], mode='nearest', align_corners=False)
+            
+            preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
 
-            
+
             valid_preds = preds[label != 255]
             valid_label = label[label != 255]
 
-            valid_preds = valid_preds[valid_label != 0]
-            valid_label = valid_label[valid_label != 0]
-            valid_label = valid_label - 1
 
-
-            histogram += scores(valid_label, valid_preds, args.K_test)
+            histogram += scores(valid_label, valid_preds, num_classes)
             
             if i_batch%20==0:
                 logger.info('{}/{}'.format(i_batch, len(dataloader)))
@@ -231,11 +234,13 @@ def evaluate(args, logger, dataloader, model, classifier, device):
     match = np.array(list(zip(*m)))
     acc = histogram[match[:, 0], match[:, 1]].sum() / histogram.sum() * 100
 
-    new_hist = np.zeros((args.K_test, args.K_test))
-    for idx in range(args.K_test):
+    new_hist = np.zeros((num_classes, num_classes))
+    for idx in range(num_classes):
         new_hist[match[idx, 1]] = histogram[idx]
     
 
     res = get_result_metrics(new_hist)
 
     return acc, res
+
+

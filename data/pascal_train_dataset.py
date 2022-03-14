@@ -24,10 +24,7 @@ class TrainPASCAL(data.Dataset):
         self.res = res
         self.inv_list = inv_list
         self.eqv_list = eqv_list
-        
         self.mode = 'normal'
-
-  
         
         if download:
             self._download()
@@ -36,7 +33,6 @@ class TrainPASCAL(data.Dataset):
         with open(os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split)), 'r') as f:
             lines = f.read().splitlines()
         
-        print(len(lines))
 
         # self.reshuffle()
         _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
@@ -108,7 +104,7 @@ class TrainPASCAL(data.Dataset):
         
         label = self.get_pseudo_labels(index)
 
-        return index, image_query, label, sal_query,  image_key, sal_key
+        return index, image_query, sal_query, label, image_key, sal_key
 
     
     def get_pseudo_labels(self, index):

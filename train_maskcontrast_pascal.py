@@ -24,7 +24,7 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=2022, help='Random seed for reproducability.')
     parser.add_argument('--num_workers', type=int, default=2, help='Number of workers.')
     parser.add_argument('--restart', action='store_true', default=True)
-    parser.add_argument('--num_epoch', type=int, default=10) 
+    parser.add_argument('--num_epoch', type=int, default=60) 
     parser.add_argument('--repeats', type=int, default=5)  
 
     # Train. 
@@ -74,7 +74,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def train(args, logger, dataloader, model, classifier, optimizer, device, epoch, kmloss):
+def train(args, logger, dataloader, model, optimizer, device, epoch):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
     cluster_losses = AverageMeter('Cluster loss')
@@ -84,16 +84,14 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch,
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
-    for i_batch, (_, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
+    for i_batch, (_, img_q, sal_q, _, img_k, sal_k) in enumerate(dataloader):
         
         img_q = img_q.cuda(non_blocking=True)
         sal_q = sal_q.cuda(non_blocking=True)
-        label = label.cuda(non_blocking=True)
         img_k = img_k.cuda(non_blocking=True)
-        sal_k = sal_k.cuda(non_blocking=True)
+        sal_k = sal_k.cuda(non_blocking=True) 
 
-        
-        logits, labels, cluster_logits, cluster_labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label)
+        logits, labels, saliency_loss = model.mc_forward(img_q, sal_q, img_k, sal_k)
 
          # Use E-Net weighting for calculating the pixel-wise loss.
         uniq, freq = torch.unique(labels, return_counts=True)
@@ -105,15 +103,13 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch,
                                             reduction='mean')
 
 
-        cluster_loss = F.cross_entropy(cluster_logits, cluster_labels, reduction='mean')
 
         
         
-        loss = contrastive_loss + saliency_loss + args.coeff *cluster_loss
+        loss = contrastive_loss + saliency_loss 
 
 
         contrastive_losses.update(contrastive_loss.item())
-        cluster_losses.update(cluster_loss.item())
         saliency_losses.update(saliency_loss.item())
         losses.update(loss.item())
         
@@ -130,9 +126,7 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch,
     writer = SummaryWriter(log_dir=writer_path)
     writer.add_scalar('total loss', losses.avg, epoch)
     writer.add_scalar('contrastive loss', contrastive_losses.avg, epoch)
-    writer.add_scalar('cluster loss', cluster_losses.avg, epoch)
     writer.add_scalar('saliency loss', saliency_losses.avg, epoch)
-    writer.add_scalar('kmeans loss', kmloss, epoch)
     writer.close()
 
     return losses.avg
@@ -150,7 +144,7 @@ def main(args, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else'cpu' )
 
     # Get model and optimizer.
-    model, optimizer, classifier = get_model_and_optimizer(args, logger, device)
+    model, optimizer, _ = get_model_and_optimizer(args, logger, device)
 
     # Dataset
     inv_list, eqv_list = get_transform_params(args)
@@ -178,55 +172,36 @@ def main(args, logger):
     for epoch in range(args.start_epoch, args.num_epoch):
         #  Clustering
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
-        logger.info('Start clustering ... \n')
-        t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device, split='train')
-        logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
-        
-        ## Compute cluster assignment. 
-        t2 = t.time()
-        weight = compute_labels(args, logger, trainloader, model, centroids, device=device)     
-        logger.info('Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
-        ## Set nonparametric classifier.
-        classifier = initialize_classifier(args)
-        classifier = classifier.to(device)
-        classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
-        freeze_all(classifier)
-        del centroids
-
-        ## Set trainset to get pseudolabel
-        trainset.mode  = 'label'
-        trainset.labeldir = args.save_model_path
-        trainloader_loop  = torch.utils.data.DataLoader(trainset, 
-                                                        batch_size=args.batch_size_train, 
-                                                        shuffle=True,
-                                                        num_workers=args.num_workers,
-                                                        pin_memory=True,
-                                                        worker_init_fn=worker_init_fn(args.seed),
-                                                        drop_last=True,
-                                                        )
-
+    
         logger.info('Start training ...\n')
         t2 = t.time()
-        train_loss = train(args, logger, trainloader_loop, model, classifier, optimizer, device, epoch, kmloss) 
+        train_loss = train(args, logger, trainloader, model, optimizer, device, epoch) 
         trainset.mode  = 'normal'
+        logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
+        if epoch% args.eval_interval == 0:
             logger.info('Start evaluating ...\n')
+            centroids, kmloss = run_mini_batch_kmeans(args, logger, testloader, model, device=device, split='test')
+            
+            classifier = initialize_classifier(args, split='test')
+            classifier = classifier.to(device)
+            classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
+            freeze_all(classifier)
+            del centroids
+
             acc, res   = evaluate(args, logger, testloader, model, classifier, device)
+            
+
             logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
             logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
-            logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
-            logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
             logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
             logger.info('=================================================\n')
             logger.info('Finish evaluating ...\n')
-        
+
         logger.info('Start checkpointing ...\n')
-       
         torch.save({'epoch': epoch+1, 
                     'args' : args,
                     'state_dict': model.state_dict(),
