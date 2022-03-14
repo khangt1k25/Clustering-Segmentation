@@ -44,7 +44,7 @@ class ContrastiveModel(nn.Module):
         self.bce = BalancedCrossEntropyLoss(size_average=True)
 
     @torch.no_grad()
-    def momentum_update_key_encoder(self):
+    def _momentum_update_key_encoder(self):
         """
         Momentum update of the key encoder
         """
@@ -95,7 +95,7 @@ class ContrastiveModel(nn.Module):
             sal_q = torch.index_select(sal_q, index=mask_indexes, dim=0) // 2
         
         with torch.no_grad():
-            # self._momentum_update_key_encoder()  # update the key encoder
+            self._momentum_update_key_encoder()  # update the key encoder
             k, _ = self.model_k(im_k)  # keys: N x C x H x W
             k = nn.functional.normalize(k, dim=1)
             k = k.reshape(batch_size, self.dim, -1) # B x dim x H.W
@@ -128,7 +128,7 @@ class ContrastiveModel(nn.Module):
         else:
             label = (label -1).long().detach() # pixels
         
-
+                
 
         mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
         l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)

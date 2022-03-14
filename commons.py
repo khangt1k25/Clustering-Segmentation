@@ -26,9 +26,9 @@ def get_model_and_optimizer(args, logger, device):
     # Init optimizer 
     if args.optim_type == 'SGD':
         optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, \
-                                    momentum=args.momentum, weight_decay=args.weight_decay)
+                                    momentum=args.momentum, weight_decay=args.weight_decay, nesterov=False)
     elif args.optim_type == 'Adam':
-        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr)
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, nesterov=False)
 
     # optional restart. 
     args.start_epoch  = 0 
@@ -217,7 +217,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             valid_preds = valid_preds[valid_label != 0]
             valid_label = valid_label[valid_label != 0]
             valid_label = valid_label - 1
-            
+
 
             histogram += scores(valid_label, valid_preds, args.K_test)
             

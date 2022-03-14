@@ -33,13 +33,13 @@ def parse_arguments():
     parser.add_argument('--batch_size_train', type=int, default=32)
     parser.add_argument('--batch_size_test', type=int, default=32)
 
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--weight_decay', type=float, default=5e-4)
+    parser.add_argument('--lr', type=float, default=4e-3)
+    parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--optim_type', type=str, default='Adam')
+    parser.add_argument('--optim_type', type=str, default='SGD')
     parser.add_argument('--num_init_batches', type=int, default=64)
-    parser.add_argument('--num_batches', type=int, default=64)
-    parser.add_argument('--kmeans_n_iter', type=int, default=30)
+    parser.add_argument('--num_batches', type=int, default=1)
+    parser.add_argument('--kmeans_n_iter', type=int, default=20)
 
     # Additonal
     parser.add_argument('--pretrain', action='store_true', default=False)
@@ -48,10 +48,10 @@ def parse_arguments():
     parser.add_argument('--ndim', type=int, default=32)
     parser.add_argument('--reducer', type=int, default=0)
     parser.add_argument('--eval_interval', type=int, default=1)
-
+    
 
     # Loss. 
-    parser.add_argument('--K_train', type=int, default=1000)
+    parser.add_argument('--K_train', type=int, default=20)
     parser.add_argument('--K_test', type=int, default=20) 
 
     # Dataset. 
@@ -96,18 +96,19 @@ def train(args, logger, dataloader, model, classifier, optimizer, device, epoch,
 
          # Use E-Net weighting for calculating the pixel-wise loss.
         uniq, freq = torch.unique(labels, return_counts=True)
-        p_class = torch.zeros(logits.shape[1], dtype=torch.float32).cuda(p['gpu'], non_blocking=True)
+        p_class = torch.zeros(logits.shape[1], dtype=torch.float32).cuda(non_blocking=True)
         p_class_non_zero_classes = freq.float() / labels.numel()
         p_class[uniq] = p_class_non_zero_classes
         w_class = 1 / torch.log(1.02 + p_class)
         contrastive_loss = F.cross_entropy(logits, labels, weight=w_class,
                                             reduction='mean')
 
+
         cluster_loss = F.cross_entropy(cluster_logits, cluster_labels, reduction='mean')
 
         
         lamda = 0.1
-        loss = contrastive_loss + saliency_loss + 0.1*cluster_loss
+        loss = contrastive_loss + saliency_loss + lamda*cluster_loss
 
 
         contrastive_losses.update(contrastive_loss.item())
@@ -222,6 +223,9 @@ def main(args, logger):
         logger.info('Start training ...\n')
         t2 = t.time()
         train_loss = train(args, logger, trainloader_loop, model, classifier, optimizer, device, epoch, kmloss) 
+        
+        trainset.mode  = 'normal'
+
         logger.info('Finish training ...\n')
 
         if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):

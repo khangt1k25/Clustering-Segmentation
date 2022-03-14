@@ -1,12 +1,13 @@
-K_train=100
+K_train=20
 K_test=20
 bsize=32
-num_epoch=10
-KM_INIT=32 # need
-KM_NUM=32 #need
+num_epoch=30
+KM_INIT=64 # need
+KM_NUM=1 #need
 KM_ITER=20
-SEED=1
-LR=1e-4
+SEED=2
+LR=4e-3
+
 
 mkdir -p results/train/${SEED}
 

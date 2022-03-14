@@ -24,6 +24,9 @@ class TrainPASCAL(data.Dataset):
         self.res = res
         self.inv_list = inv_list
         self.eqv_list = eqv_list
+        
+        self.mode = 'normal'
+
   
         
         if download:
@@ -119,7 +122,7 @@ class TrainPASCAL(data.Dataset):
 
             return label1
         
-        return None
+        return torch.zeros([])
 
     def transform_image_sal(self, index, image, sal, ver):
 
