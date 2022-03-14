@@ -155,6 +155,7 @@ def main(args, logger):
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
                                                 worker_init_fn=worker_init_fn(args.seed),
+                                                drop_last=True,
                                                 )
 
     testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
@@ -184,7 +185,7 @@ def main(args, logger):
         ## Evaluating
         if epoch% args.eval_interval == 0:
             logger.info('Start evaluating ...\n')
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, testloader, model, device=device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans2(args, logger, testloader, model, device=device, split='test')
             
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)

@@ -154,6 +154,93 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     return centroids, kmeans_loss.avg
 
 
+def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train'):
+    '''
+    Clustering for Key view
+    '''
+    kmeans_loss  = AverageMeter('kmean loss')
+    faiss_module = get_faiss_module(args)
+    
+    if split=='train':
+        K = args.K_train
+    elif split == 'test':
+        K = args.K_test
+    
+    data_count   = np.zeros(K)
+    featslist    = []
+    num_batches  = 0
+    first_batch  = True    
+    isreduce = (args.reducer > 0)
+    
+    model.eval()
+    with torch.no_grad():
+        for i_batch, (_, img_k, sal_k) in enumerate(dataloader):
+            
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+            k, _ = model.model_q(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
+            batch_size = k.shape[0]
+            k = k.permute((0, 2, 3, 1))          # queries: B x H x W x dim 
+            k = torch.reshape(k, [-1, args.ndim]) # queries: BHW x dim
+            
+            # Drop background pixels
+            offset = torch.arange(0, 2 * batch_size, 2).to(sal_k.device)
+            sal_k = (sal_k + torch.reshape(offset, [-1, 1, 1]))*sal_k 
+            sal_k = sal_k.view(-1)
+            mask_indexes = torch.nonzero((sal_k)).view(-1).squeeze()
+    
+            if isreduce:
+                reducer_idx = torch.randperm(mask_indexes.shape[0])[:args.reducer*batch_size]
+                mask_indexes = mask_indexes[reducer_idx]
+            
+            k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() 
+            
+
+            if i_batch == 0:
+                logger.info('Batch feature : {}'.format(list(k.shape)))
+            
+            if num_batches < args.num_init_batches:
+                featslist.append(k)
+                num_batches += 1
+                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                    if first_batch:
+                        # Compute initial centroids. 
+                        # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
+                        featslist = torch.cat(featslist).cpu().numpy().astype('float32')
+                        centroids = get_init_centroids(args, K, featslist, faiss_module).astype('float32')
+                        D, I = faiss_module.search(featslist, 1)
+                        kmeans_loss.update(D.mean())
+                        logger.info('Initial k-means loss: {:.4f} '.format(kmeans_loss.avg))
+                        # Compute counts for each cluster. 
+                        for k in np.unique(I):
+                            data_count[k] += len(np.where(I == k)[0])
+                        first_batch = False
+
+                        # break # discard this 
+                    else:
+                        b_feat = torch.cat(featslist)
+                        faiss_module = module_update_centroids(faiss_module, centroids)
+                        D, I = faiss_module.search(b_feat.numpy().astype('float32'), 1)
+                        kmeans_loss.update(D.mean())
+
+                        # Update centroids. 
+                        for k in np.unique(I):
+                            idx_k = np.where(I == k)[0]
+                            data_count[k] += len(idx_k)
+                            centroid_lr    = len(idx_k) / (data_count[k] + 1e-6)
+                            centroids[k]   = (1 - centroid_lr) * centroids[k] + centroid_lr * b_feat[idx_k].mean(0).numpy().astype('float32')
+                    
+                    # Empty. 
+                    featslist   = []
+                    num_batches = args.num_init_batches - args.num_batches
+
+            if (i_batch % 100) == 0:
+                logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
+    
+    del faiss_module
+    centroids = torch.tensor(centroids, requires_grad=False).to(device)
+
+    return centroids, kmeans_loss.avg
 
 
 def compute_labels(args, logger, dataloader, model, centroids, device):
