@@ -292,7 +292,7 @@ if __name__=='__main__':
     if args.augment:
         args.save_root += '/augmented/res={}/jitter={}_blur={}_grey={}'.format(args.res, args.jitter, args.blur, args.grey)
     if args.equiv:
-        args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/'.format(args.h_flip, args.v_flip, args.random_crop)
+        args.save_root += '/equiv/h_flip={}_v_flip={}'.format(args.h_flip, args.v_flip)
 
     args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}'.format(args.K_train))
     args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}'.format(args.K_test))

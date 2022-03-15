@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnnk
 import faiss 
-import math
 
 ################################################################################
 #                                  General-purpose                             #
@@ -179,7 +178,8 @@ def feature_flatten(feats):
 def get_faiss_module(args):
     res = faiss.StandardGpuResources()
     cfg = faiss.GpuIndexFlatConfig()
-    cfg.useFloat16 = False 
+    # cfg.useFloat16 = False 
+    cfg.useFloat16 = True
     cfg.device     = 0 #NOTE: Single GPU only. 
     idx = faiss.GpuIndexFlatL2(res, args.ndim, cfg)
     return idx
@@ -264,8 +264,6 @@ def get_transform_params(args):
                 eqv_list.append('h_flip')
             if args.v_flip:
                 eqv_list.append('v_flip')
-            if args.random_crop:
-                eqv_list.append('random_crop')
     
     return inv_list, eqv_list
 
@@ -316,19 +314,3 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-###
-def adjust_learning_rate(args, optimizer, epoch):
-    lr = args.lr
-    if args.lr_scheduler == 'poly':
-        lambd = pow(1-(epoch/args.num_epoch), 0.9)
-        lr = lr * lambd
-    elif args.lr_scheduler == 'constant':
-        lr = lr
-    else:
-        raise ValueError('Invalid learning rate schedule {}'.format(args.lr_scheduler))
-    
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-    return lr

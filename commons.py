@@ -19,9 +19,7 @@ def get_model_and_optimizer(args, logger, device):
     from modules.builder import ContrastiveModel
     model = ContrastiveModel(args)
     model = model.to(device)
-
-
-    # Init classifier
+    
     classifier = initialize_classifier(args, split='train')
     classifier = classifier.to(device)
 
@@ -31,7 +29,7 @@ def get_model_and_optimizer(args, logger, device):
                                     momentum=args.momentum, weight_decay=args.weight_decay, nesterov=False)
     elif args.optim_type == 'Adam':
         optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, nesterov=False)
-        
+
     # optional restart. 
     args.start_epoch  = 0 
     if args.restart or args.eval_only: 
@@ -51,7 +49,7 @@ def get_model_and_optimizer(args, logger, device):
     return model, optimizer, classifier
 
 
-    
+
 
 
 
@@ -60,9 +58,9 @@ def get_optimizer(args, parameters):
     # Init optimizer 
     if args.optim_type == 'SGD':
         optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, parameters), lr=args.lr, \
-                                    momentum=args.momentum, weight_decay=args.weight_decay, nesterov=False)
+                                    momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.optim_type == 'Adam':
-        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, parameters), lr=args.lr, nesterov=False)
+        optimizer = torch.optim.Adam(filter(lambda x: x.requires_grad, parameters), lr=args.lr)
     
     return optimizer
 
@@ -150,7 +148,6 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
     
-    del faiss_module
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg
@@ -158,7 +155,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
 
 def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train'):
     '''
-    Clustering for Key view: MDC version
+    Clustering for Key view
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
@@ -309,7 +306,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
 
-            
+
             valid_preds = preds[label != 255]
             valid_label = label[label != 255]
 
