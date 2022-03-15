@@ -150,7 +150,7 @@ def main(args, logger):
     inv_list, eqv_list = get_transform_params(args)
     trainset = TrainPASCAL(args.data_root, res=args.res, split='trainaug', inv_list=inv_list, eqv_list=eqv_list)
     trainloader = torch.utils.data.DataLoader(trainset, 
-                                                batch_size=args.batch_size_cluster,
+                                                batch_size=args.batch_size_train,
                                                 shuffle=True, 
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
@@ -266,7 +266,7 @@ if __name__=='__main__':
     if args.augment:
         args.save_root += '/augmented/res={}/jitter={}_blur={}_grey={}'.format(args.res, args.jitter, args.blur, args.grey)
     if args.equiv:
-        args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/'.format(args.h_flip, args.v_flip, args.random_crop)
+        args.save_root += '/equiv/h_flip={}_v_flip={}'.format(args.h_flip, args.v_flip)
 
     args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}'.format(args.K_train))
     args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}'.format(args.K_test))
