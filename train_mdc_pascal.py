@@ -1,4 +1,5 @@
 import argparse
+from ast import parse
 from operator import inv
 import os
 from posixpath import split
@@ -24,50 +25,51 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=2022, help='Random seed for reproducability.')
     parser.add_argument('--num_workers', type=int, default=2, help='Number of workers.')
     parser.add_argument('--restart', action='store_true', default=True)
-    parser.add_argument('--num_epoch', type=int, default=10) 
-    parser.add_argument('--repeats', type=int, default=5)  
+    parser.add_argument('--num_epoch', type=int, default=60) 
 
-    # Train. 
-    parser.add_argument('--res', type=int, default=224, help='Input size.')
-    parser.add_argument('--batch_size_cluster', type=int, default=32)
-    parser.add_argument('--batch_size_train', type=int, default=32)
-    parser.add_argument('--batch_size_test', type=int, default=32)
+    
+    # Model 
+    parser.add_argument('--backbone', type=str, default='resnet50')
+    parser.add_argument('--pretrain', action='store_true', default=False)
+    parser.add_argument('--pretraining', type=str, default='imagenet_classification')
+    parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local/moco_v2_800ep_pretrain.pth.tar')
+    parser.add_argument('--ndim', type=int, default=32)
 
+    # Optimizer
+    parser.add_argument('--optim_type', type=str, default='SGD')
     parser.add_argument('--lr', type=float, default=4e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--optim_type', type=str, default='SGD')
+    parser.add_argument('--lr_scheduler', type=str, default='poly')
+    
+    # Train. 
+    parser.add_argument('--batch_size_cluster', type=int, default=32)
+    parser.add_argument('--batch_size_train', type=int, default=32)
+    parser.add_argument('--batch_size_test', type=int, default=32)
     parser.add_argument('--num_init_batches', type=int, default=64)
     parser.add_argument('--num_batches', type=int, default=1)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
+    parser.add_argument('--eval_interval', type=int, default=5)
 
-    # Additonal
-    parser.add_argument('--pretrain', action='store_true', default=False)
-    parser.add_argument('--pretraining', type=str, default='imagenet_classification')
-    parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
-    parser.add_argument('--ndim', type=int, default=32)
-    parser.add_argument('--reducer', type=int, default=0)
-    parser.add_argument('--eval_interval', type=int, default=1)
-    parser.add_argument('--coeff', type=float, default=1e-1)
-    
-
-    # Loss. 
+    # Cluster 
     parser.add_argument('--K_train', type=int, default=20)
     parser.add_argument('--K_test', type=int, default=20) 
+    parser.add_argument('--reducer', type=int, default=0)
+    parser.add_argument('--coeff', type=float, default=1e-1)
+
 
     # Dataset. 
+    parser.add_argument('--res', type=int, default=224, help='Input size.')
     parser.add_argument('--augment', action='store_true', default=False)
     parser.add_argument('--equiv', action='store_true', default=False)
-    parser.add_argument('--min_scale', type=float, default=0.5)
     parser.add_argument('--jitter', action='store_true', default=False)
     parser.add_argument('--grey', action='store_true', default=False)
     parser.add_argument('--blur', action='store_true', default=False)
     parser.add_argument('--h_flip', action='store_true', default=False)
     parser.add_argument('--v_flip', action='store_true', default=False)
-    parser.add_argument('--random_crop', action='store_true', default=False)
-    parser.add_argument('--val_type', type=str, default='val')
     
     # Eval-only
+    parser.add_argument('--repeats', type=int, default=5) 
     parser.add_argument('--eval_only', action='store_true', default=False)
     parser.add_argument('--eval_path', type=str)
 
@@ -209,6 +211,10 @@ def main(args, logger):
 
         logger.info('Start training ...\n')
         t2 = t.time()
+        
+        lr = adjust_learning_rate(args, optimizer, epoch)
+        logger.info('Adjusted learning rate to {:.5f} \n'.format(lr))
+
         train_loss = train(args, logger, trainloader_loop, model, classifier, optimizer, device, epoch, kmloss) 
         trainset.mode  = 'normal'
         logger.info('Finish training ...\n')
