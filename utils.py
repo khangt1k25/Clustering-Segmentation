@@ -314,3 +314,21 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
+
+def adjust_learning_rate(args, optimizer, epoch):
+    
+    lr = args.lr 
+
+    if args.lr_scheduler == 'poly':
+        lambd = pow(1-(epoch/args.num_epoch), 0.9)
+        lr = lr * lambd
+    elif args.lr_scheduler == 'constant':
+        lr = lr
+    else:
+        raise ValueError('Invalid learning rate schedule {}'.format(args.lr_scheduler))
+
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+        
+    return lr

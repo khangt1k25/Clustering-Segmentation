@@ -176,6 +176,10 @@ def main(args, logger):
 
     
         logger.info('Start training ...\n')
+        
+        lr = adjust_learning_rate(args, optimizer, epoch)
+        logger.info('Adjusted learning rate to {:.5f} \n'.format(lr))
+        
         t2 = t.time()
         train_loss = train(args, logger, trainloader, model, optimizer, device, epoch) 
         trainset.mode  = 'normal'
