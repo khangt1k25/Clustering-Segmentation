@@ -10,7 +10,7 @@ LR=4e-3
 
 mkdir -p results/train/${SEED}
 
-python train_maskcontrast_pascal.py \
+python train_mdc_pascal.py \
 --data_root '/content/drive/MyDrive/UCS_local/PASCAL_VOC' \
 --save_root results/train/${SEED} \
 --pretrain \

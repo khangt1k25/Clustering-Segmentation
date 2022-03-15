@@ -297,9 +297,12 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             q_bg = (q_bg > 0.5).float()
 
             probs = classifier(q) #BxdimxHxW
+            
             preds = probs.topk(1, dim=1)[1].squeeze() #BxHxW
+          
             preds = ((preds  + 1) * q_bg.float()).long() #BxHxW
-            preds = F.interpolate(preds, label.shape[-2:], mode='nearest', align_corners=False)
+            
+            # preds = F.interpolate(preds, label.shape[-2:], mode='bilinear', align_corners=False)
             
             preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
