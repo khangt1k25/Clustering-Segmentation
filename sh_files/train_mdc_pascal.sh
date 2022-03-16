@@ -3,11 +3,11 @@ K_test=20
 bsize_cluster=32
 bsize_train=32
 bsize_test=32
-num_epoch=20
+num_epoch=60
 KM_INIT=64 
-KM_NUM=2 
+KM_NUM=3
 KM_ITER=20
-SEED=1
+SEED=2
 LR=4e-3
 reducer=0
 coeff=1e-1
@@ -19,7 +19,7 @@ python train_mdc_pascal.py \
 --save_root results/train/${SEED} \
 --backbone 'resnet50' \
 --pretrain \
---pretraining 'imagenet_classification' \
+--pretraining 'imagenet_moco' \
 --moco_state_dict '/content/drive/MyDrive/UCS_local/moco_v2_800ep_pretrain.pth.tar' \
 --lr ${LR} \
 --seed ${SEED} \
@@ -33,7 +33,7 @@ python train_mdc_pascal.py \
 --num_epoch ${num_epoch} \
 --res 224 \
 --augment --jitter --blur --grey --equiv --h_flip --v_flip \
---eval_interval 5 \
+--eval_interval 10 \
 --repeats 1 \
 --reducer ${reducer} \
 --coeff ${coeff} \

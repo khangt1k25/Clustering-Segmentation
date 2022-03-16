@@ -242,20 +242,16 @@ def load_pretrained_weights(args, model):
                 new_dict[k.rsplit('encoder_q.')[1]] = v
         msg = model.load_state_dict(new_dict, strict=False)   
         print(msg)
-        #assert(all(['fc' in k for k in msg[0]])) 
-        #assert(all(['fc' in k for k in msg[1]])) 
-
     else:
         raise ValueError('Invalid value {}'.format(args.moco_state_dict))
         
 def get_model(args):
     import torchvision.models.resnet as resnet
-    
     if args.backbone == 'resnet50':
         backbone = resnet.__dict__['resnet50'](pretrained=False)
         backbone_channels = 2048
     elif args.backbone == 'resnet18':
-        backbone = resnet.__dict__['resnet50'](pretrained=False)
+        backbone = resnet.__dict__['resnet18'](pretrained=False)
         backbone_channels = 512
     else:
         raise ValueError('Invalid backbone {}'.format(args.backbone))

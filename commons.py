@@ -236,7 +236,7 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
     
-    del faiss_module
+ 
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg

@@ -9,11 +9,11 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-# from data.custom_transforms import *
-# from data.utils import *  
+from data.custom_transforms import *
+from data.utils import *  
 
-from custom_transforms import *
-from utils import *
+# from custom_transforms import *
+# from utils import *
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'

@@ -333,7 +333,3 @@ def adjust_learning_rate(args, optimizer, epoch):
         
     return lr
 
-def eqv_transform_if_needed(args, dataloader, indice, input):
-    if args.equiv:
-        input = dataloader.dataset.transform_eqv(indice, input)
-    return input  

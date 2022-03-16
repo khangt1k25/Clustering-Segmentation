@@ -201,10 +201,6 @@ class RandomVerticalFlip(object):
             sal = sal.transpose(Image.FLIP_TOP_BOTTOM)
         return image, sal
     
-    def fw_repr(self, indice, feat):
-        if self.plist[indice] < self.p_ref:
-            feat = TF.vflip(feat)        
-        return feat
 
 
 class RandomHorizontalFlip(object):
@@ -219,13 +215,7 @@ class RandomHorizontalFlip(object):
         
         return image, sal
     
-    def fw_repr(self, indice, feat):
-        print(indice.shape)
-        print(feat.shape)
-        if self.plist[indice] < self.p_ref:
-            feat = TF.hflip(feat)        
-        return feat
-    
+
 
 class RandomVerticalTensorFlip(object):
     def __init__(self, N, p_ref, plist):
