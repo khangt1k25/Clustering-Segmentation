@@ -20,8 +20,8 @@ def get_model_and_optimizer(args, logger, device):
     model = ContrastiveModel(args)
     model = model.to(device)
     
-    classifier = initialize_classifier(args, split='train')
-    classifier = classifier.to(device)
+    # classifier = initialize_classifier(args, split='train')
+    # classifier = classifier.to(device)
 
     # Init optimizer 
     if args.optim_type == 'SGD':
@@ -40,13 +40,13 @@ def get_model_and_optimizer(args, logger, device):
             checkpoint  = torch.load(load_path)
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
-            classifier.load_state_dict(checkpoint['classifier_state_dict'])
+            # classifier.load_state_dict(checkpoint['classifier_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info('Loaded checkpoint. [epoch {}]'.format(args.start_epoch))
         else:
             logger.info('No checkpoint found at [{}].\nStart from beginning...\n'.format(load_path))
     
-    return model, optimizer, classifier
+    return model, optimizer
 
 
 
@@ -65,17 +65,13 @@ def get_optimizer(args, parameters):
     return optimizer
 
 
-def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'):
+def run_mini_batch_kmeans(args, logger, dataloader, model, device):
     '''
     Clustering for Key view
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    
-    if split=='train':
-        K = args.K_train
-    elif split == 'test':
-        K = args.K_test
+    K = args.K_train
     
     data_count   = np.zeros(K)
     featslist    = []
@@ -110,10 +106,10 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
             if i_batch == 0:
                 logger.info('Batch feature : {}'.format(list(k.shape)))
             
-            if num_batches < args.num_init_batches:
+            if num_batches < args.num_init_batches_train:
                 featslist.append(k)
                 num_batches += 1
-                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                if num_batches == args.num_init_batches_train or num_batches == len(dataloader):
                     if first_batch:
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
@@ -143,7 +139,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
                     
                     # Empty. 
                     featslist   = []
-                    num_batches = args.num_init_batches - args.num_batches
+                    num_batches = args.num_init_batches_train - args.num_batches_train
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
@@ -153,18 +149,14 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     return centroids, kmeans_loss.avg
 
 
-def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train'):
+def run_mini_batch_kmeans_for_test(args, logger, dataloader, model, device):
     '''
     Clustering for Key view
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    
-    if split=='train':
-        K = args.K_train
-    elif split == 'test':
-        K = args.K_test
-    
+    K = args.K_test
+
     data_count   = np.zeros(K)
     featslist    = []
     num_batches  = 0
@@ -198,10 +190,10 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
             if i_batch == 0:
                 logger.info('Batch feature : {}'.format(list(k.shape)))
             
-            if num_batches < args.num_init_batches:
+            if num_batches < args.num_init_batches_test:
                 featslist.append(k)
                 num_batches += 1
-                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                if num_batches == args.num_init_batches_test or num_batches == len(dataloader):
                     if first_batch:
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
@@ -215,7 +207,6 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
                             data_count[k] += len(np.where(I == k)[0])
                         first_batch = False
 
-                        # break # discard this 
                     else:
                         b_feat = torch.cat(featslist)
                         faiss_module = module_update_centroids(faiss_module, centroids)
@@ -231,7 +222,7 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
                     
                     # Empty. 
                     featslist   = []
-                    num_batches = args.num_init_batches - args.num_batches
+                    num_batches = args.num_init_batches_test - args.num_batches_test
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
@@ -331,7 +322,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
     for idx in range(num_classes):
         new_hist[match[idx, 1]] = histogram[idx]
     
-
+    
     res = get_result_metrics(new_hist)
 
     return acc, res

@@ -73,7 +73,7 @@ class ContrastiveModel(nn.Module):
         q = nn.functional.normalize(q, dim=1)
         q = q.permute((0, 2, 3, 1))          # queries: B x H x W x dim 
         q = torch.reshape(q, [-1, self.dim]) # queries: pixels x dim
-
+        
         # compute saliency loss
         sal_loss = self.bce(q_bg, sal_q)
    

@@ -45,8 +45,12 @@ def parse_arguments():
     parser.add_argument('--batch_size_cluster', type=int, default=32)
     parser.add_argument('--batch_size_train', type=int, default=32)
     parser.add_argument('--batch_size_test', type=int, default=32)
-    parser.add_argument('--num_init_batches', type=int, default=64)
-    parser.add_argument('--num_batches', type=int, default=1)
+    
+    parser.add_argument('--num_init_batches_train', type=int, default=64)
+    parser.add_argument('--num_batches_train', type=int, default=1)
+    parser.add_argument('--num_init_batches_test', type=int, default=16)
+    parser.add_argument('--num_batches_test', type=int, default=1)
+    
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     parser.add_argument('--eval_interval', type=int, default=5)
 
@@ -158,7 +162,8 @@ def main(args, logger):
                                                 drop_last=True,
                                                 )
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -187,9 +192,9 @@ def main(args, logger):
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if epoch% args.eval_interval == 0:
+        if epoch% args.eval_interval == -1:
             logger.info('Start evaluating ...\n')
-            centroids, kmloss = run_mini_batch_kmeans2(args, logger, testloader, model, device=device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device=device)
             
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
@@ -229,7 +234,7 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans2(args, logger, trainloader, model, device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, trainloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             

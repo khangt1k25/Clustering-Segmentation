@@ -46,8 +46,12 @@ def parse_arguments():
     parser.add_argument('--batch_size_cluster', type=int, default=32)
     parser.add_argument('--batch_size_train', type=int, default=32)
     parser.add_argument('--batch_size_test', type=int, default=32)
-    parser.add_argument('--num_init_batches', type=int, default=64)
-    parser.add_argument('--num_batches', type=int, default=1)
+    
+    parser.add_argument('--num_init_batches_train', type=int, default=64)
+    parser.add_argument('--num_batches_train', type=int, default=1)
+    parser.add_argument('--num_init_batches_test', type=int, default=64)
+    parser.add_argument('--num_batches_test', type=int, default=1)
+
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
     parser.add_argument('--eval_interval', type=int, default=5)
 
@@ -165,7 +169,8 @@ def main(args, logger):
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 )
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -182,7 +187,7 @@ def main(args, logger):
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start clustering ... \n')
         t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device, split='train')
+        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device)
         logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
         
         ## Compute cluster assignment. 
@@ -191,7 +196,7 @@ def main(args, logger):
         logger.info('Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         ## Set nonparametric classifier.
-        classifier = initialize_classifier(args)
+        classifier = initialize_classifier(args, split='train')
         classifier = classifier.to(device)
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
@@ -219,7 +224,7 @@ def main(args, logger):
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
+        if (args.K_train == args.K_test) and (epoch% args.eval_interval == -1):
             logger.info('Start evaluating ...\n')
             acc, res   = evaluate(args, logger, testloader, model, classifier, device)
             logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
@@ -254,7 +259,7 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans2(args, logger, testloader, model, device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             

@@ -178,7 +178,6 @@ def feature_flatten(feats):
 def get_faiss_module(args):
     res = faiss.StandardGpuResources()
     cfg = faiss.GpuIndexFlatConfig()
-    # cfg.useFloat16 = False 
     cfg.useFloat16 = True
     cfg.device     = 0 #NOTE: Single GPU only. 
     idx = faiss.GpuIndexFlatL2(res, args.ndim, cfg)
@@ -196,7 +195,6 @@ def get_init_centroids(args, K, featlist, index):
 def module_update_centroids(index, centroids):
     index.reset()
     index.add(centroids)
-
     return index 
 
 def fix_seed_for_reproducability(seed):
