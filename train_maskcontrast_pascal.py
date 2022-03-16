@@ -25,53 +25,59 @@ def parse_arguments():
     parser.add_argument('--num_workers', type=int, default=2, help='Number of workers.')
     parser.add_argument('--restart', action='store_true', default=True)
     parser.add_argument('--num_epoch', type=int, default=60) 
-    parser.add_argument('--repeats', type=int, default=5)  
 
-    # Train. 
-    parser.add_argument('--res', type=int, default=224, help='Input size.')
-    parser.add_argument('--batch_size_cluster', type=int, default=32)
-    parser.add_argument('--batch_size_train', type=int, default=32)
-    parser.add_argument('--batch_size_test', type=int, default=32)
+    
+    # Model 
+    parser.add_argument('--backbone', type=str, default='resnet50')
+    parser.add_argument('--pretrain', action='store_true', default=False)
+    parser.add_argument('--pretraining', type=str, default='imagenet_classification')
+    parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local/moco_v2_800ep_pretrain.pth.tar')
+    parser.add_argument('--ndim', type=int, default=32)
 
+    # Optimizer
+    parser.add_argument('--optim_type', type=str, default='SGD')
     parser.add_argument('--lr', type=float, default=4e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--optim_type', type=str, default='SGD')
-    parser.add_argument('--num_init_batches', type=int, default=64)
-    parser.add_argument('--num_batches', type=int, default=1)
-    parser.add_argument('--kmeans_n_iter', type=int, default=20)
-
-    # Additonal
-    parser.add_argument('--pretrain', action='store_true', default=False)
-    parser.add_argument('--pretraining', type=str, default='imagenet_classification')
-    parser.add_argument('--moco_state_dict', type=str, default='/content/drive/MyDrive/UCS_local(renamed)/moco_v2_800ep_pretrain.pth.tar')
-    parser.add_argument('--ndim', type=int, default=32)
-    parser.add_argument('--reducer', type=int, default=0)
-    parser.add_argument('--eval_interval', type=int, default=1)
-    parser.add_argument('--coeff', type=float, default=1e-1)
+    parser.add_argument('--lr_scheduler', type=str, default='poly')
     
+    # Train. 
+    parser.add_argument('--batch_size_cluster', type=int, default=32)
+    parser.add_argument('--batch_size_train', type=int, default=32)
+    parser.add_argument('--batch_size_test', type=int, default=32)
+    
+    parser.add_argument('--num_init_batches_train', type=int, default=64)
+    parser.add_argument('--num_batches_train', type=int, default=1)
+    parser.add_argument('--num_init_batches_test', type=int, default=16)
+    parser.add_argument('--num_batches_test', type=int, default=1)
+    
+    parser.add_argument('--kmeans_n_iter', type=int, default=20)
+    parser.add_argument('--eval_interval', type=int, default=5)
 
-    # Loss. 
+    # Cluster 
     parser.add_argument('--K_train', type=int, default=20)
     parser.add_argument('--K_test', type=int, default=20) 
+    parser.add_argument('--reducer', type=int, default=0)
+    parser.add_argument('--coeff', type=float, default=1e-1)
+
 
     # Dataset. 
+    parser.add_argument('--res', type=int, default=224, help='Input size.')
     parser.add_argument('--augment', action='store_true', default=False)
     parser.add_argument('--equiv', action='store_true', default=False)
-    parser.add_argument('--min_scale', type=float, default=0.5)
     parser.add_argument('--jitter', action='store_true', default=False)
     parser.add_argument('--grey', action='store_true', default=False)
     parser.add_argument('--blur', action='store_true', default=False)
     parser.add_argument('--h_flip', action='store_true', default=False)
     parser.add_argument('--v_flip', action='store_true', default=False)
-    parser.add_argument('--random_crop', action='store_true', default=False)
-    parser.add_argument('--val_type', type=str, default='val')
     
     # Eval-only
+    parser.add_argument('--repeats', type=int, default=5) 
     parser.add_argument('--eval_only', action='store_true', default=False)
     parser.add_argument('--eval_path', type=str)
 
     return parser.parse_args()
+
 
 
 def train(args, logger, dataloader, model, optimizer, device, epoch):
@@ -103,8 +109,6 @@ def train(args, logger, dataloader, model, optimizer, device, epoch):
                                             reduction='mean')
 
 
-
-        
         
         loss = contrastive_loss + saliency_loss 
 
@@ -144,13 +148,13 @@ def main(args, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else'cpu' )
 
     # Get model and optimizer.
-    model, optimizer, _ = get_model_and_optimizer(args, logger, device)
+    model, optimizer = get_model_and_optimizer(args, logger, device)
 
     # Dataset
     inv_list, eqv_list = get_transform_params(args)
     trainset = TrainPASCAL(args.data_root, res=args.res, split='trainaug', inv_list=inv_list, eqv_list=eqv_list)
     trainloader = torch.utils.data.DataLoader(trainset, 
-                                                batch_size=args.batch_size_cluster,
+                                                batch_size=args.batch_size_train,
                                                 shuffle=True, 
                                                 num_workers=args.num_workers,
                                                 pin_memory=True,
@@ -158,7 +162,8 @@ def main(args, logger):
                                                 drop_last=True,
                                                 )
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
                                              shuffle=False,
@@ -167,7 +172,7 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed),
                                              )
 
-
+    
     
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
@@ -176,6 +181,10 @@ def main(args, logger):
 
     
         logger.info('Start training ...\n')
+        
+        lr = adjust_learning_rate(args, optimizer, epoch)
+        logger.info('Adjusted learning rate to {:.5f} \n'.format(lr))
+        
         t2 = t.time()
         train_loss = train(args, logger, trainloader, model, optimizer, device, epoch) 
         trainset.mode  = 'normal'
@@ -183,9 +192,9 @@ def main(args, logger):
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if epoch% args.eval_interval == 0:
+        if epoch% args.eval_interval == -1:
             logger.info('Start evaluating ...\n')
-            centroids, kmloss = run_mini_batch_kmeans2(args, logger, testloader, model, device=device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device=device)
             
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
@@ -206,12 +215,11 @@ def main(args, logger):
         torch.save({'epoch': epoch+1, 
                     'args' : args,
                     'state_dict': model.state_dict(),
-                    'classifier_state_dict' : classifier.state_dict(),
                     'optimizer' : optimizer.state_dict(),
                     },
                     os.path.join(args.save_model_path, 'checkpoint.pth.tar'))
         logger.info('Finish checkpointing ...\n')
-
+    
         
               
     # Evaluate with fresh clusters. 
@@ -225,7 +233,7 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, trainloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             
@@ -262,7 +270,7 @@ if __name__=='__main__':
     if args.augment:
         args.save_root += '/augmented/res={}/jitter={}_blur={}_grey={}'.format(args.res, args.jitter, args.blur, args.grey)
     if args.equiv:
-        args.save_root += '/equiv/h_flip={}_v_flip={}_crop={}/'.format(args.h_flip, args.v_flip, args.random_crop)
+        args.save_root += '/equiv/h_flip={}_v_flip={}'.format(args.h_flip, args.v_flip)
 
     args.save_model_path = os.path.join(args.save_root, args.comment, 'K_train={}'.format(args.K_train))
     args.save_eval_path  = os.path.join(args.save_model_path, 'K_test={}'.format(args.K_test))

@@ -20,8 +20,8 @@ def get_model_and_optimizer(args, logger, device):
     model = ContrastiveModel(args)
     model = model.to(device)
     
-    classifier = initialize_classifier(args, split='train')
-    classifier = classifier.to(device)
+    # classifier = initialize_classifier(args, split='train')
+    # classifier = classifier.to(device)
 
     # Init optimizer 
     if args.optim_type == 'SGD':
@@ -40,13 +40,13 @@ def get_model_and_optimizer(args, logger, device):
             checkpoint  = torch.load(load_path)
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
-            classifier.load_state_dict(checkpoint['classifier_state_dict'])
+            # classifier.load_state_dict(checkpoint['classifier_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info('Loaded checkpoint. [epoch {}]'.format(args.start_epoch))
         else:
             logger.info('No checkpoint found at [{}].\nStart from beginning...\n'.format(load_path))
     
-    return model, optimizer, classifier
+    return model, optimizer
 
 
 
@@ -65,17 +65,13 @@ def get_optimizer(args, parameters):
     return optimizer
 
 
-def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'):
+def run_mini_batch_kmeans(args, logger, dataloader, model, device):
     '''
     Clustering for Key view
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    
-    if split=='train':
-        K = args.K_train
-    elif split == 'test':
-        K = args.K_test
+    K = args.K_train
     
     data_count   = np.zeros(K)
     featslist    = []
@@ -110,10 +106,10 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
             if i_batch == 0:
                 logger.info('Batch feature : {}'.format(list(k.shape)))
             
-            if num_batches < args.num_init_batches:
+            if num_batches < args.num_init_batches_train:
                 featslist.append(k)
                 num_batches += 1
-                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                if num_batches == args.num_init_batches_train or num_batches == len(dataloader):
                     if first_batch:
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
@@ -143,29 +139,24 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
                     
                     # Empty. 
                     featslist   = []
-                    num_batches = args.num_init_batches - args.num_batches
+                    num_batches = args.num_init_batches_train - args.num_batches_train
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
     
-    del faiss_module
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg
 
 
-def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train'):
+def run_mini_batch_kmeans_for_test(args, logger, dataloader, model, device):
     '''
     Clustering for Key view
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
-    
-    if split=='train':
-        K = args.K_train
-    elif split == 'test':
-        K = args.K_test
-    
+    K = args.K_test
+
     data_count   = np.zeros(K)
     featslist    = []
     num_batches  = 0
@@ -199,10 +190,10 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
             if i_batch == 0:
                 logger.info('Batch feature : {}'.format(list(k.shape)))
             
-            if num_batches < args.num_init_batches:
+            if num_batches < args.num_init_batches_test:
                 featslist.append(k)
                 num_batches += 1
-                if num_batches == args.num_init_batches or num_batches == len(dataloader):
+                if num_batches == args.num_init_batches_test or num_batches == len(dataloader):
                     if first_batch:
                         # Compute initial centroids. 
                         # By doing so, we avoid empty cluster problem from mini-batch K-Means. 
@@ -216,7 +207,6 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
                             data_count[k] += len(np.where(I == k)[0])
                         first_batch = False
 
-                        # break # discard this 
                     else:
                         b_feat = torch.cat(featslist)
                         faiss_module = module_update_centroids(faiss_module, centroids)
@@ -232,12 +222,12 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
                     
                     # Empty. 
                     featslist   = []
-                    num_batches = args.num_init_batches - args.num_batches
+                    num_batches = args.num_init_batches_test - args.num_batches_test
 
             if (i_batch % 100) == 0:
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
     
-    del faiss_module
+ 
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
 
     return centroids, kmeans_loss.avg
@@ -245,7 +235,7 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
 
 def compute_labels(args, logger, dataloader, model, centroids, device):
     """
-    Label for Query view
+    Label for Query view using Key view: Eqv
     The distance is efficiently computed by setting centroids as convolution layer. 
     """
     K = centroids.size(0) + 1
@@ -255,18 +245,24 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     counts = torch.zeros(K, requires_grad=False).cpu()
     model.eval()
     with torch.no_grad():
-        for i_batch, (indice, img_q, sal_q, _, _, _) in enumerate(dataloader):
-            img_q, sal_q = img_q.cuda(non_blocking=True), sal_q.cuda(non_blocking=True)
-            q, _ = model.model_q(img_q) # Bx dim x H x W
-            q = nn.functional.normalize(q, dim=1)
+        for i_batch, (indice, _, sal_q, _, img_k, _) in enumerate(dataloader):
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+
+            k, _ = model.model_k(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
 
             if i_batch == 0:
                 logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-                logger.info('Batch input size   : {}'.format(list(img_q.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(q.shape)))
+                logger.info('Batch input size   : {}'.format(list(img_k.shape)))
+                logger.info('Batch feature size : {}\n'.format(list(k.shape)))
 
             # Compute distance and assign label. 
-            scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
+            scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+
+
+            # Perfom Eqv transform to Query view
+            scores = dataloader.dataset.transform_eqv_repr(indice, scores)
+
 
             # Save labels and count. 
             for idx, idx_img in enumerate(indice):
@@ -276,7 +272,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
                 logger.info('[Assigning labels] {} / {}'.format(i_batch, len(dataloader)))
     
     weight = counts / counts.sum()
-        
+     
     return weight
 
 
@@ -297,9 +293,10 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             q_bg = (q_bg > 0.5).float()
 
             probs = classifier(q) #BxdimxHxW
+            
             preds = probs.topk(1, dim=1)[1].squeeze() #BxHxW
+          
             preds = ((preds  + 1) * q_bg.float()).long() #BxHxW
-            preds = F.interpolate(preds, label.shape[-2:], mode='nearest', align_corners=False)
             
             preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
@@ -325,7 +322,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
     for idx in range(num_classes):
         new_hist[match[idx, 1]] = histogram[idx]
     
-
+    
     res = get_result_metrics(new_hist)
 
     return acc, res

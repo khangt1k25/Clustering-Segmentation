@@ -227,7 +227,7 @@ def load_pretrained_weights(args, model):
             'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
             'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
         }
-        state_dict = load_state_dict_from_url(model_urls['resnet50'],
+        state_dict = load_state_dict_from_url(model_urls[str(args.backbone)],
                                               progress=True)
         msg = model.load_state_dict(state_dict, strict=False)        
         print(msg)
@@ -241,17 +241,26 @@ def load_pretrained_weights(args, model):
             if k.startswith('encoder_q'):
                 new_dict[k.rsplit('encoder_q.')[1]] = v
         msg = model.load_state_dict(new_dict, strict=False)   
-        assert(all(['fc' in k for k in msg[0]])) 
-        assert(all(['fc' in k for k in msg[1]])) 
-
+        print(msg)
     else:
         raise ValueError('Invalid value {}'.format(args.moco_state_dict))
         
 def get_model(args):
     import torchvision.models.resnet as resnet
-    backbone = resnet.__dict__['resnet50'](pretrained=False)
-    backbone_channels = 2048
-    load_pretrained_weights(args, backbone)
+    if args.backbone == 'resnet50':
+        backbone = resnet.__dict__['resnet50'](pretrained=False)
+        backbone_channels = 2048
+    elif args.backbone == 'resnet18':
+        backbone = resnet.__dict__['resnet18'](pretrained=False)
+        backbone_channels = 512
+    else:
+        raise ValueError('Invalid backbone {}'.format(args.backbone))
+    
+    if args.pretrain:
+        load_pretrained_weights(args, backbone)
+    
     backbone = ResnetDilated(backbone)
+    
     deplabhead = DeepLabHead(backbone_channels, args.ndim)
+
     return ContrastiveSegmentationModel(backbone, deplabhead, head='linear')
