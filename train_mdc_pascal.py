@@ -156,7 +156,7 @@ def main(args, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else'cpu' )
 
     # Get model and optimizer.
-    model, optimizer, classifier = get_model_and_optimizer(args, logger, device)
+    model, optimizer = get_model_and_optimizer(args, logger, device)
 
     # Dataset
     inv_list, eqv_list = get_transform_params(args)

@@ -148,7 +148,7 @@ def main(args, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else'cpu' )
 
     # Get model and optimizer.
-    model, optimizer, _ = get_model_and_optimizer(args, logger, device)
+    model, optimizer = get_model_and_optimizer(args, logger, device)
 
     # Dataset
     inv_list, eqv_list = get_transform_params(args)
@@ -215,12 +215,11 @@ def main(args, logger):
         torch.save({'epoch': epoch+1, 
                     'args' : args,
                     'state_dict': model.state_dict(),
-                    'classifier_state_dict' : classifier.state_dict(),
                     'optimizer' : optimizer.state_dict(),
                     },
                     os.path.join(args.save_model_path, 'checkpoint.pth.tar'))
         logger.info('Finish checkpointing ...\n')
-
+    
         
               
     # Evaluate with fresh clusters. 
