@@ -9,8 +9,11 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-from data.custom_transforms import *
-from data.utils import *  
+# from data.custom_transforms import *
+# from data.utils import *  
+
+from custom_transforms import *
+from utils import *
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
@@ -48,8 +51,9 @@ class TrainPASCAL(data.Dataset):
 
         assert(len(self.images) == len(self.sals))
         
-        self.reshuffle()
         print('Number of Images {}'.format(len(self.images)))
+
+        self.init_transforms()
 
     def _download(self):
         
@@ -73,23 +77,11 @@ class TrainPASCAL(data.Dataset):
         os.chdir(cwd)
         print('Done!')
 
-    def reshuffle(self):
-        """
-        Generate random floats for all image data to deterministically random transform.
-        This is to use random sampling but have the same samples during clustering and 
-        training within the same epoch. 
-        """
-        self.shuffled_indices = np.arange(len(self.images))
-        np.random.shuffle(self.shuffled_indices)
-        self.init_transforms() 
 
     def load_sal(self, index):
         return Image.open(self.sals[index])
 
     def load_data(self, index):
-        """
-        Labels are in unit8 format where class labels are in [0 - 181] and 255 is unlabeled.
-        """
         return Image.open(self.images[index]).convert('RGB')
     
     def __getitem__(self, index):
@@ -132,36 +124,6 @@ class TrainPASCAL(data.Dataset):
             sal = sal[0]
         return image, sal
 
-    def transform_image(self, index, image):
-        # Base transform
-        image = self.transform_base(index, image)
-        
-        if self.mode == 'compute':
-            if self.view == 1:
-                image = self.transform_inv(index, image, 0)
-                image = self.transform_tensor(image)
-            elif self.view == 2:
-                image = self.transform_inv(index, image, 1)
-                image = TF.resize(image, self.res1, Image.BILINEAR)
-                image = self.transform_tensor(image)
-            else:
-                raise ValueError('View [{}] is an invalid option.'.format(self.view))
-            return (image, )
-        elif 'train' in self.mode:
-            # Invariance transform. 
-            image1 = self.transform_inv(index, image, 0)
-            image1 = self.transform_tensor(image1)
-
-            if self.mode == 'baseline_train':
-                return (image1, )
-            
-            image2 = self.transform_inv(index, image, 1)
-            image2 = TF.resize(image2, self.res1, Image.BILINEAR)
-            image2 = self.transform_tensor(image2)
-
-            return (image1, image2)
-        else:
-            raise ValueError('Mode [{}] is an invalid option.'.format(self.mode))
 
     def transform_inv(self, index, image, ver):
         """
@@ -193,23 +155,38 @@ class TrainPASCAL(data.Dataset):
 
         return image, sal
 
+    
+    def transform_eqv_repr(self, index, feat):
+        if 'h_flip' in self.eqv_list:
+            feat = self.horizontal_tensor_flip(index, feat)
+        if 'v_flip' in self.eqv_list:
+            feat = self.vertical_tensor_flip(index, feat)
+
+        return feat
+
     def init_transforms(self):
         N = len(self.images)
         # Base transform.
-        self.transform_base = BaseTransform(self.res)
+        self.transform_base = RandomResizedCrop(size=self.res, scale=(0.2, 1)) 
         
         # Transforms for invariance. 
         # Color jitter (4), gray scale, blur. 
-        self.random_color_brightness = [RandomColorBrightness(x=0.3, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)]
-        self.random_color_contrast   = [RandomColorContrast(x=0.3, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)
-        self.random_color_saturation = [RandomColorSaturation(x=0.3, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)
+        self.random_color_brightness = [RandomColorBrightness(x=0.4, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)]
+        self.random_color_contrast   = [RandomColorContrast(x=0.4, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)
+        self.random_color_saturation = [RandomColorSaturation(x=0.4, p=0.8, N=N) for _ in range(2)] # Control this later (NOTE)
         self.random_color_hue        = [RandomColorHue(x=0.1, p=0.8, N=N) for _ in range(2)]      # Control this later (NOTE)
+        
         self.random_gray_scale    = [RandomGrayScale(p=0.2, N=N) for _ in range(2)]
+
         self.random_gaussian_blur = [RandomGaussianBlur(sigma=[.1, 2.], p=0.5, N=N) for _ in range(2)]
         
         # Transforms for equivariance
-        self.random_horizontal_flip = RandomHorizontalTensorFlip(N=N)
+        self.random_horizontal_flip = RandomHorizontalFlip(N=N)
         self.random_vertical_flip   = RandomVerticalFlip(N=N)
+
+        self.horizontal_tensor_flip = RandomHorizontalTensorFlip(N=N, p_ref=self.random_horizontal_flip.p_ref, plist=self.random_horizontal_flip.plist)
+        self.vertical_tensor_flip = RandomVerticalTensorFlip(N=N, p_ref=self.random_vertical_flip.p_ref, plist=self.random_vertical_flip.plist)
+
 
         # Tensor and normalize transform. 
         self.transform_tensor = TensorTransform(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -225,30 +202,45 @@ class TrainPASCAL(data.Dataset):
             
        
 if __name__ == '__main__':
-    inv_list = ['brightness', 'contrast', 'saturation', 'hue']
+    inv_list = ['brightness', 'contrast', 'saturation', 'hue', 'gray', 'blur']
     eqv_list = ['h_flip', 'v_flip']
     trainset = TrainPASCAL('/home/khangt1k25/Code/Clustering-Segmentation/PASCAL_VOC', res=224, \
                         split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
     
 
-    indice, img1, sal1, img2, sal2 = trainset[0]
+    indice, img1, sal1, _, img2, sal2 = trainset[0]
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=32,
                                                 shuffle=True, 
                                                 num_workers=2,
                                                 pin_memory=True,
-                                                # collate_fn=collate_train_baseline,
-                                                worker_init_fn=worker_init_fn(2022))
+    )
     
-    for i_batch, (indice, img1, sal1, img2, sal2) in enumerate(trainloader):
-        print(indice.shape)
-        print(indice)
-        print(img1.shape)
-        print(sal1.shape)
-        print(img2.shape)
-        print(sal2.shape)
-        break
-    # img1.show()
-    # sal1.show()
-    # img2.show()
-    # sal2.show()
+    
+
+
+
+                                                # collate_fn=collate_train_baseline,
+                                                # worker_init_fn=worker_init_fn(2022))
+    
+    topil = torchvision.transforms.ToPILImage()
+    for i_batch, (indice, img1, sal1, _, img2, sal2) in enumerate(trainloader):
+        # print(img1.shape)
+        # print(sal1.shape)
+        # print(img2.shape)
+        # print(sal2.shape)
+
+        # print(indice.shape)
+
+        topil(img1[0]).show()
+        # topil(img2[0]).show()
+        feat3 = trainloader.dataset.transform_eqv_repr(indice, img2)
+        topil(feat3[0]).show()
+        if i_batch==10:
+            break
+
+        
+
+
+
+    

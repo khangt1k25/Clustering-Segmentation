@@ -49,22 +49,18 @@ class EvalPASCAL(data.Dataset):
         
        
         _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
-        _sal_dir = os.path.join(self.root, self.DB_NAME, 'saliency_unsupervised_model')
         _label_dir = os.path.join(self.root, self.DB_NAME, 'SegmentationClass')
         
         self.images = []
-        # self.sals = []
+
         self.labels = []
         for ii, line in enumerate(lines):
             _image = os.path.join(_image_dir, line + ".jpg")
-            # _sal = os.path.join(_sal_dir, line + ".png")
             _label = os.path.join(_label_dir, line + ".png")
             if os.path.isfile(_image) and os.path.isfile(_label):
                 self.images.append(_image)
-                # self.sals.append(_sal)
                 self.labels.append(_label)
 
-        # assert(len(self.images) == len(self.sals))
         assert(len(self.images) == len(self.labels))
 
         ignore_classes = []
@@ -101,7 +97,6 @@ class EvalPASCAL(data.Dataset):
 
     def load_data(self, index):
         _image = Image.open(self.images[index]).convert('RGB')
-        # _sal = Image.open(self.sals[index])
         _semseg = Image.open(self.labels[index])
         return _image, _semseg
     
@@ -111,9 +106,6 @@ class EvalPASCAL(data.Dataset):
         image,  label = self.load_data(index)
         image,  label = self.transform_data(image,  label)
         
-        # sal = sal.squeeze().long()
-        # if len(sal.shape) == 3:
-        #     sal = sal[0]
 
         return index, image, label
 
@@ -122,7 +114,6 @@ class EvalPASCAL(data.Dataset):
 
         # 1. Resize
         image = TF.resize(image, self.res, Image.BILINEAR)
-        # sal = TF.resize(sal, self.res, Image.NEAREST)
         label = TF.resize(label, self.res, Image.NEAREST)
         
         # 2. CenterCrop
@@ -131,14 +122,11 @@ class EvalPASCAL(data.Dataset):
         top  = int(round((h - self.res) / 2.))
 
         image = TF.crop(image, top, left, self.res, self.res)
-        # sal = TF.crop(sal, top, left, self.res, self.res)
         label = TF.crop(label, top, left, self.res, self.res)
 
         # 3. Transformation
-        transform_image, totensor = self._get_data_transformation()
+        transform_image = self._get_data_transformation()
         image = transform_image(image)
-        
-        # sal= totensor(sal)
 
         label = np.array(label)
         label = torch.from_numpy(label).long()
@@ -159,7 +147,7 @@ class EvalPASCAL(data.Dataset):
         # Base transformation
         trans_list += [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
         
-        return transforms.Compose(trans_list), transforms.ToTensor()
+        return transforms.Compose(trans_list)
     
     def __len__(self):
         return len(self.images)

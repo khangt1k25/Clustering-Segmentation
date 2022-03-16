@@ -76,7 +76,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def train(args, logger, dataloader, model, classifier, optimizer, device, epoch, kmloss):
+def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
     cluster_losses = AverageMeter('Cluster loss')
@@ -209,13 +209,12 @@ def main(args, logger):
                                                         drop_last=True,
                                                         )
 
+        ## Training
         logger.info('Start training ...\n')
-        t2 = t.time()
-        
+        t2 = t.time()   
         lr = adjust_learning_rate(args, optimizer, epoch)
         logger.info('Adjusted learning rate to {:.5f} \n'.format(lr))
-
-        train_loss = train(args, logger, trainloader_loop, model, classifier, optimizer, device, epoch, kmloss) 
+        train_loss = train(args, trainloader_loop, model, classifier, optimizer, epoch, kmloss) 
         trainset.mode  = 'normal'
         logger.info('Finish training ...\n')
 
@@ -255,7 +254,7 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans2(args, logger, testloader, model, device, split='test')
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             

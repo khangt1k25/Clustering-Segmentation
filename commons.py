@@ -244,7 +244,7 @@ def run_mini_batch_kmeans2(args, logger, dataloader, model, device, split='train
 
 def compute_labels(args, logger, dataloader, model, centroids, device):
     """
-    Label for Query view
+    Label for Query view using Key view: Eqv
     The distance is efficiently computed by setting centroids as convolution layer. 
     """
     K = centroids.size(0) + 1
@@ -254,18 +254,24 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     counts = torch.zeros(K, requires_grad=False).cpu()
     model.eval()
     with torch.no_grad():
-        for i_batch, (indice, img_q, sal_q, _, _, _) in enumerate(dataloader):
-            img_q, sal_q = img_q.cuda(non_blocking=True), sal_q.cuda(non_blocking=True)
-            q, _ = model.model_q(img_q) # Bx dim x H x W
-            q = nn.functional.normalize(q, dim=1)
+        for i_batch, (indice, _, sal_q, _, img_k, _) in enumerate(dataloader):
+            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+
+            k, _ = model.model_k(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
 
             if i_batch == 0:
                 logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-                logger.info('Batch input size   : {}'.format(list(img_q.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(q.shape)))
+                logger.info('Batch input size   : {}'.format(list(img_k.shape)))
+                logger.info('Batch feature size : {}\n'.format(list(k.shape)))
 
             # Compute distance and assign label. 
-            scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
+            scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+
+
+            # Perfom Eqv transform to Query view
+            scores = dataloader.dataset.transform_eqv_repr(indice, scores)
+
 
             # Save labels and count. 
             for idx, idx_img in enumerate(indice):
@@ -275,7 +281,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
                 logger.info('[Assigning labels] {} / {}'.format(i_batch, len(dataloader)))
     
     weight = counts / counts.sum()
-        
+     
     return weight
 
 
@@ -300,8 +306,6 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             preds = probs.topk(1, dim=1)[1].squeeze() #BxHxW
           
             preds = ((preds  + 1) * q_bg.float()).long() #BxHxW
-            
-            # preds = F.interpolate(preds, label.shape[-2:], mode='bilinear', align_corners=False)
             
             preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
