@@ -177,8 +177,8 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed),
                                              )
 
-
     
+
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
         #  Clustering
@@ -221,17 +221,18 @@ def main(args, logger):
         trainset.mode  = 'normal'
         logger.info('Finish training ...\n')
         
+
         ## Evaluating
-        if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
-            logger.info('Start evaluating ...\n')
-            acc, res   = evaluate(args, logger, testloader, model, classifier, device)
-            logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
-            logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
-            logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
-            logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
-            logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
-            logger.info('=================================================\n')
-            logger.info('Finish evaluating ...\n')
+        # if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
+        #     logger.info('Start evaluating ...\n')
+        #     acc, res   = evaluate(args, logger, testloader, model, classifier, device)
+        #     logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
+        #     logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
+        #     logger.info('  K-Means loss   : {:.5f}.\n'.format(kmloss))
+        #     logger.info('  Training loss  : {:.5f}.\n'.format(train_loss))
+        #     logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
+        #     logger.info('=================================================\n')
+        #     logger.info('Finish evaluating ...\n')
         
         logger.info('Start checkpointing ...\n')
        
@@ -244,14 +245,15 @@ def main(args, logger):
                     os.path.join(args.save_model_path, 'checkpoint.pth.tar'))
         logger.info('Finish checkpointing ...\n')
 
-        
+
               
     # Evaluate with fresh clusters. 
     acc_list_new = []  
     res_list_new = []
     logger.info('================================Start evaluating the LAST==============================\n')                 
     
-    evalset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
+
+    evalset = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jiter', 'grey']) ## We could use exactly testset here
     evalloader = torch.utils.data.DataLoader(evalset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
@@ -259,7 +261,6 @@ def main(args, logger):
                                                 pin_memory=True,
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 )
-
     
     if args.repeats > 0:
         for r in range(args.repeats):

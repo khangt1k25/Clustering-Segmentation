@@ -169,14 +169,7 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed),
                                              )
 
-    evalset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
-    evalloader = torch.utils.data.DataLoader(evalset, 
-                                            batch_size=args.batch_size_cluster,
-                                            shuffle=True, 
-                                            num_workers=args.num_workers,
-                                            pin_memory=True,
-                                            worker_init_fn=worker_init_fn(args.seed),
-                                            )
+    
     
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
@@ -196,25 +189,25 @@ def main(args, logger):
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if epoch% args.eval_interval == 0:
-            logger.info('Start evaluating ...\n')
+        # if epoch% args.eval_interval == 0:
+        #     logger.info('Start evaluating ...\n')
 
-            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, evalloader, model, device)
+        #     centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, evalloader, model, device)
             
-            classifier = initialize_classifier(args, split='test')
-            classifier = classifier.to(device)
-            classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
-            freeze_all(classifier)
-            del centroids
+        #     classifier = initialize_classifier(args, split='test')
+        #     classifier = classifier.to(device)
+        #     classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
+        #     freeze_all(classifier)
+        #     del centroids
         
-            acc, res   = evaluate(args, logger, testloader, model, classifier, device)
+        #     acc, res   = evaluate(args, logger, testloader, model, classifier, device)
             
 
-            logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
-            logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
-            logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
-            logger.info('=================================================\n')
-            logger.info('Finish evaluating ...\n')
+        #     logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
+        #     logger.info('  Time for train/eval : [{}].\n'.format(get_datetime(int(t.time())-int(t2))))
+        #     logger.info('  ACC: {:.4f} | mIoU: {:.4f} | mean_precision {:.4f} | overall_precision {:.4f} \n'.format(acc, res['mean_iou'], res['mean_precision (class-avg accuracy)'],res['overall_precision (pixel accuracy)']))
+        #     logger.info('=================================================\n')
+        #     logger.info('Finish evaluating ...\n')
 
         logger.info('Start checkpointing ...\n')
         torch.save({'epoch': epoch+1, 
@@ -232,7 +225,14 @@ def main(args, logger):
     res_list_new = []
     logger.info('================================Start evaluating the LAST==============================\n')                 
     
-    
+    evalset = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jiter', 'grey'])
+    evalloader = torch.utils.data.DataLoader(evalset, 
+                                            batch_size=args.batch_size_cluster,
+                                            shuffle=True, 
+                                            num_workers=args.num_workers,
+                                            pin_memory=True,
+                                            worker_init_fn=worker_init_fn(args.seed),
+                                            )
     if args.repeats > 0:
         for r in range(args.repeats):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 

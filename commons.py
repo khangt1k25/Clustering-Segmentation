@@ -108,7 +108,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
             
             k = torch.index_select(k, index=mask_indexes, dim=0).detach().cpu() 
             
-
+                
             if i_batch == 0:
                 logger.info('Batch feature : {}'.format(list(k.shape)))
             
