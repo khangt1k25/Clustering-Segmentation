@@ -246,7 +246,7 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     model.eval()
     with torch.no_grad():
         for i_batch, (indice, _, sal_q, _, img_k, _) in enumerate(dataloader):
-            img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
+            img_k, sal_q = img_k.cuda(non_blocking=True), sal_q.cuda(non_blocking=True)
 
             k, _ = model.model_k(img_k) # Bx dim x H x W
             k = nn.functional.normalize(k, dim=1)

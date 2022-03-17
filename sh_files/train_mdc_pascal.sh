@@ -21,7 +21,7 @@ python train_mdc_pascal.py \
 --save_root results/train/${SEED} \
 --backbone 'resnet50' \
 --pretrain \
---pretraining 'imagenet_moco' \
+--pretraining 'imagenet_classification' \
 --moco_state_dict '/content/drive/MyDrive/UCS_local/moco_v2_800ep_pretrain.pth.tar' \
 --lr ${LR} \
 --seed ${SEED} \
