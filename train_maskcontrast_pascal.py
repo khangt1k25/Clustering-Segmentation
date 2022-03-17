@@ -46,13 +46,11 @@ def parse_arguments():
     parser.add_argument('--batch_size_train', type=int, default=32)
     parser.add_argument('--batch_size_test', type=int, default=32)
     
-    parser.add_argument('--num_init_batches_train', type=int, default=64)
-    parser.add_argument('--num_batches_train', type=int, default=1)
-    parser.add_argument('--num_init_batches_test', type=int, default=16)
-    parser.add_argument('--num_batches_test', type=int, default=1)
-    
+    parser.add_argument('--num_init_batches', type=int, default=64)
+    parser.add_argument('--num_batches', type=int, default=2)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
-    parser.add_argument('--eval_interval', type=int, default=5)
+    
+    parser.add_argument('--eval_interval', type=int, default=10)
 
     # Cluster 
     parser.add_argument('--K_train', type=int, default=20)
@@ -208,7 +206,7 @@ def main(args, logger):
             classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
             freeze_all(classifier)
             del centroids
-
+        
             acc, res   = evaluate(args, logger, testloader, model, classifier, device)
             
 

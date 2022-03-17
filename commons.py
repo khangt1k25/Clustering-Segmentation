@@ -259,21 +259,34 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     
     model.eval()
     with torch.no_grad():
-        for i_batch, (indice, _, _, _, img_k, _) in enumerate(dataloader):
-            img_k = img_k.cuda(non_blocking=True)
-            k, _ = model.model_k(img_k) # Bx dim x H x W
-            k = nn.functional.normalize(k, dim=1)
+        for i_batch, (indice, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
+            img_q = img_q.cuda(non_blocking=True)
+            q, _ = model.model_k(img_q) # Bx dim x H x W
+            q = nn.functional.normalize(q, dim=1)
 
             if i_batch == 0:
                 logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-                logger.info('Batch input size   : {}'.format(list(img_k.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(k.shape)))
+                logger.info('Batch input size   : {}'.format(list(img_q.shape)))
+                logger.info('Batch feature size : {}\n'.format(list(q.shape)))
 
             # Compute distance and assign label. 
-            scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+            scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
 
-            # Perfom Eqv transform to Query view
-            scores = dataloader.dataset.transform_eqv_repr(indice, scores)
+
+            # img_k = img_k.cuda(non_blocking=True)
+            # k, _ = model.model_k(img_k) # Bx dim x H x W
+            # k = nn.functional.normalize(k, dim=1)
+
+            # if i_batch == 0:
+            #     logger.info('Centroid size      : {}'.format(list(centroids.shape)))
+            #     logger.info('Batch input size   : {}'.format(list(img_k.shape)))
+            #     logger.info('Batch feature size : {}\n'.format(list(k.shape)))
+
+            # # Compute distance and assign label. 
+            # scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+
+            # # Perfom Eqv transform to Query view
+            # scores = dataloader.dataset.transform_eqv_repr(indice, scores)
 
 
             # Save labels and count. 

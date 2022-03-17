@@ -51,17 +51,24 @@ class EvalPASCAL(data.Dataset):
         _image_dir = os.path.join(self.root, self.DB_NAME, 'images')
         _label_dir = os.path.join(self.root, self.DB_NAME, 'SegmentationClass')
         
-        self.images = []
 
-        self.labels = []
-        for ii, line in enumerate(lines):
-            _image = os.path.join(_image_dir, line + ".jpg")
-            _label = os.path.join(_label_dir, line + ".png")
-            if os.path.isfile(_image) and os.path.isfile(_label):
+        if split=='val':
+            self.images = []
+            self.labels = []
+            for ii, line in enumerate(lines):
+                _image = os.path.join(_image_dir, line + ".jpg")
+                _label = os.path.join(_label_dir, line + ".png")
+                if os.path.isfile(_image) and os.path.isfile(_label):
+                    self.images.append(_image)
+                    self.labels.append(_label)
+
+            assert(len(self.images) == len(self.labels))
+        
+        else:
+            self.images = []
+            for ii, line in enumerate(lines):
+                _image = os.path.join(_image_dir, line + ".jpg")
                 self.images.append(_image)
-                self.labels.append(_label)
-
-        assert(len(self.images) == len(self.labels))
 
         ignore_classes = []
         self.ignore_classes = [self.VOC_CATEGORY_NAMES.index(class_name) for class_name in ignore_classes]
@@ -103,14 +110,37 @@ class EvalPASCAL(data.Dataset):
     
     def __getitem__(self, index):
         
-        
-        image,  label = self.load_data(index)
-        image,  label = self.transform_data(image,  label)
-        
+        if self.split=='val':
+            image,  label = self.load_data(index)
+            image,  label = self.transform_data(image,  label)
+            return image, label
+        else:
+            image = self.load_image(index)
+            image = self.transform_image(image)
+            return image
 
-        return index, image, label
+    def load_image(self, index):
+        _image = Image.open(self.images[index]).convert('RGB')
+        return _image
+        
+    def transform_image(self, image):
+        # 1. Resize
+        image = TF.resize(image, self.res, Image.BILINEAR)
+        
+        # 2. CenterCrop
+        w, h = image.size
+        left = int(round((w - self.res) / 2.))
+        top  = int(round((h - self.res) / 2.))
 
-   
+        image = TF.crop(image, top, left, self.res, self.res)
+
+        # 3. Transformation
+        transform_image = self._get_data_transformation()
+        image = transform_image(image)
+
+        return image
+    
+        
     def transform_data(self, image, label):
 
         # 1. Resize
