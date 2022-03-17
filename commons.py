@@ -74,13 +74,11 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     
     if split=='train':
         K = args.K_train
-        num_batches_split = args.num_batches_train
-        num_init_batches_split = args.num_init_batches_train
     elif split == 'test':
         K = args.K_test
-        num_batches_split = args.num_batches_test
-        num_init_batches_split = args.num_init_batches_test
-    
+     
+    num_batches_split = args.num_batches
+    num_init_batches_split = args.num_init_batches
 
     data_count   = np.zeros(K)
     featslist    = []
@@ -158,22 +156,18 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     return centroids, kmeans_loss.avg
 
 
-def run_mini_batch_kmeans_for_testloader(args, logger, dataloader, model, device, split='test'):
+def run_mini_batch_kmeans_for_testloader(args, logger, dataloader, model, device):
     '''
     Clustering for testloader
     '''
     kmeans_loss  = AverageMeter('kmean loss')
     faiss_module = get_faiss_module(args)
     
-    if split=='train':
-        K = args.K_train
-        num_batches_split = args.num_batches_train
-        num_init_batches_split = args.num_init_batches_train
-    elif split == 'test':
-        K = args.K_test
-        num_batches_split = args.num_batches_test
-        num_init_batches_split = args.num_init_batches_test
-    
+
+    K = args.K_test
+    num_batches_split = args.num_batches
+    num_init_batches_split = args.num_init_batches
+
 
     data_count   = np.zeros(K)
     featslist    = []
@@ -207,7 +201,7 @@ def run_mini_batch_kmeans_for_testloader(args, logger, dataloader, model, device
             
 
             if i_batch == 0:
-                logger.info('Batch feature : {}'.format(list(k.shape)))
+                logger.info('Batch feature : {}'.format(list(feat.shape)))
             
             if num_batches < num_init_batches_split:
                 featslist.append(feat)
@@ -306,7 +300,6 @@ def evaluate(args, logger, dataloader, model, classifier, device):
         for i_batch, (_, img, label) in enumerate(dataloader):
             img= img.to(device)
             q, q_bg = model.model_q(img)
-
             q = nn.functional.normalize(q, dim=1) # BxdimxHxW
             q_bg = (q_bg > 0.5).float()
 

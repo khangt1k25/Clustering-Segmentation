@@ -47,13 +47,12 @@ def parse_arguments():
     parser.add_argument('--batch_size_train', type=int, default=32)
     parser.add_argument('--batch_size_test', type=int, default=32)
     
-    parser.add_argument('--num_init_batches_train', type=int, default=64)
-    parser.add_argument('--num_batches_train', type=int, default=1)
-    parser.add_argument('--num_init_batches_test', type=int, default=64)
-    parser.add_argument('--num_batches_test', type=int, default=1)
-
+    parser.add_argument('--num_init_batches', type=int, default=64)
+    parser.add_argument('--num_batches', type=int, default=2)
     parser.add_argument('--kmeans_n_iter', type=int, default=20)
-    parser.add_argument('--eval_interval', type=int, default=5)
+    
+    parser.add_argument('--eval_interval', type=int, default=10)
+
 
     # Cluster 
     parser.add_argument('--K_train', type=int, default=20)
@@ -252,8 +251,8 @@ def main(args, logger):
     res_list_new = []
     logger.info('================================Start evaluating the LAST==============================\n')                 
     
-    trainset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
-    trainloader = torch.utils.data.DataLoader(trainset, 
+    evalset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
+    evalloader = torch.utils.data.DataLoader(evalset, 
                                                 batch_size=args.batch_size_cluster,
                                                 shuffle=True, 
                                                 num_workers=args.num_workers,
@@ -261,21 +260,13 @@ def main(args, logger):
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 )
 
-    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
-    testloader = torch.utils.data.DataLoader(testset,
-                                             batch_size=args.batch_size_test,
-                                             shuffle=False,
-                                             num_workers=args.num_workers,
-                                             pin_memory=True,
-                                             worker_init_fn=worker_init_fn(args.seed),
-                                             )
     
     if args.repeats > 0:
         for r in range(args.repeats):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, trainloader, model, device, split='test')
+            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, evalloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             classifier = initialize_classifier(args, split='test')

@@ -162,7 +162,6 @@ def main(args, logger):
                                                 drop_last=True,
                                                 )
 
-    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
     testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
@@ -172,7 +171,14 @@ def main(args, logger):
                                              worker_init_fn=worker_init_fn(args.seed),
                                              )
 
-    
+    evalset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
+    evalloader = torch.utils.data.DataLoader(evalset, 
+                                            batch_size=args.batch_size_cluster,
+                                            shuffle=True, 
+                                            num_workers=args.num_workers,
+                                            pin_memory=True,
+                                            worker_init_fn=worker_init_fn(args.seed),
+                                            )
     
     # Train start.
     for epoch in range(args.start_epoch, args.num_epoch):
@@ -194,8 +200,9 @@ def main(args, logger):
         ## Evaluating
         if epoch% args.eval_interval == 0:
             logger.info('Start evaluating ...\n')
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
 
+            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, evalloader, model, device)
+            
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
             classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
@@ -233,8 +240,7 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            # centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device)
-            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
+            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, evalloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             
@@ -248,12 +254,9 @@ def main(args, logger):
             res_list_new.append(res_new)     
             logger.info('  ACC: {:.4f} | mIoU: {:.4f} \n'.format(acc_new, res_new['mean_iou']))
             logger.info('============Finish Repeat Time {}============\n'.format(r)) 
+
     else:
-        logger.info('============ Using trained cluster============\n')
-        acc_new, res_new = evaluate(args, logger, testloader, classifier, model)
-        acc_list_new.append(acc_new)
-        res_list_new.append(res_new)
-    
+        logger.info('Repeats must be positive')
 
     logger.info('Average overall pixel accuracy [NEW] : {} +/- {}.'.format(round(np.mean(acc_list_new), 2), np.std(acc_list_new)))
     logger.info('Average mIoU [NEW] : {:.3f} +/- {:.3f}. '.format(np.mean([res['mean_iou'] for res in res_list_new]), 
