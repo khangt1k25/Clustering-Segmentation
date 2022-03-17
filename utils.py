@@ -223,13 +223,10 @@ def worker_init_fn(seed):
 #                               Training Pipelines                             #
 ################################################################################
 
-def postprocess_label(args, K, idx, idx_img, scores, sal, view):
+def postprocess_label(args, K, idx, idx_img, scores, view):
     
-    # out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
+    out = scores[idx].topk(1, dim=0)[1].flatten().detach().cpu().numpy()
 
-    out = (scores[idx].topk(1, dim=0)[1] + 1) * sal[idx]
-    out = out.flatten().long().detach().cpu().numpy()
-    
     # Save labels.
     if not os.path.exists(os.path.join(args.save_model_path, 'label_' + str(view))):
         os.makedirs(os.path.join(args.save_model_path, 'label_' + str(view)))

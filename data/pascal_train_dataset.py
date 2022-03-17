@@ -32,7 +32,6 @@ class TrainPASCAL(data.Dataset):
         if download:
             self._download()
         
-
         with open(os.path.join(self.root, self.DB_NAME, 'sets', '{}.txt'.format(self.split)), 'r') as f:
             lines = f.read().splitlines()
         
@@ -184,6 +183,7 @@ class TrainPASCAL(data.Dataset):
         self.random_horizontal_flip = RandomHorizontalFlip(N=N)
         self.random_vertical_flip   = RandomVerticalFlip(N=N)
 
+        # For features
         self.horizontal_tensor_flip = RandomHorizontalTensorFlip(N=N, p_ref=self.random_horizontal_flip.p_ref, plist=self.random_horizontal_flip.plist)
         self.vertical_tensor_flip = RandomVerticalTensorFlip(N=N, p_ref=self.random_vertical_flip.p_ref, plist=self.random_vertical_flip.plist)
 

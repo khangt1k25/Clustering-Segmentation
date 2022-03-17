@@ -192,10 +192,10 @@ def main(args, logger):
         logger.info('Finish training ...\n')
 
         ## Evaluating
-        if epoch% args.eval_interval == -1:
+        if epoch% args.eval_interval == 0:
             logger.info('Start evaluating ...\n')
-            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device=device)
-            
+            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
+
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
             classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
@@ -233,7 +233,8 @@ def main(args, logger):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, trainloader, model, device)
+            # centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device)
+            centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device)
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
             
             

@@ -92,7 +92,7 @@ class TensorTransform(object):
     def __call__(self, image, sal):
         image = self.to_tensor(image)
         sal = self.to_tensor(sal)
-        # image = self.normalize(image)
+        image = self.normalize(image)
     
         return image, sal
         

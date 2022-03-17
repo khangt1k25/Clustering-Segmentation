@@ -65,7 +65,8 @@ class EvalPASCAL(data.Dataset):
 
         ignore_classes = []
         self.ignore_classes = [self.VOC_CATEGORY_NAMES.index(class_name) for class_name in ignore_classes]
-
+        
+        print('Num of images {}'.format(len(self.images)))
 
 
 
@@ -159,10 +160,6 @@ if __name__ == '__main__':
     
     index, img, label = testset[0]
     print(img.shape)
-    # print(label.shape)
-    # label.show()
-    # x = np.array(label)
-    # print(np.unique(x))
     print(torch.unique(label))
     topil = transforms.ToPILImage()
     # topil(img).show()

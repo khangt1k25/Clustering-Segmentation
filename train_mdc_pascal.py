@@ -129,7 +129,7 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
         # Display progress
         if i_batch % 25 == 0:
             progress.display(i_batch)
-    
+        
     
     
     writer_path = os.path.join(args.save_model_path, "runs")
@@ -169,7 +169,6 @@ def main(args, logger):
                                                 worker_init_fn=worker_init_fn(args.seed),
                                                 )
 
-    # testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=['jitter', 'blur', 'grey'])
     testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
     testloader = torch.utils.data.DataLoader(testset,
                                              batch_size=args.batch_size_test,
@@ -187,8 +186,8 @@ def main(args, logger):
         logger.info('\n============================= [Epoch {}] =============================\n'.format(epoch))
         logger.info('Start clustering ... \n')
         t1 = t.time()
-        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device)
-        logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss ,get_datetime(int(t.time())-int(t1))))
+        centroids, kmloss = run_mini_batch_kmeans(args, logger, trainloader, model, device=device, split='train')
+        logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss , get_datetime(int(t.time())-int(t1))))
         
         ## Compute cluster assignment. 
         t2 = t.time()
@@ -222,9 +221,9 @@ def main(args, logger):
         train_loss = train(args, trainloader_loop, model, classifier, optimizer, epoch, kmloss) 
         trainset.mode  = 'normal'
         logger.info('Finish training ...\n')
-
+        
         ## Evaluating
-        if (args.K_train == args.K_test) and (epoch% args.eval_interval == -1):
+        if (args.K_train == args.K_test) and (epoch% args.eval_interval == 0):
             logger.info('Start evaluating ...\n')
             acc, res   = evaluate(args, logger, testloader, model, classifier, device)
             logger.info('========== Evaluatation at epoch [{}] ===========\n'.format(epoch))
@@ -253,15 +252,31 @@ def main(args, logger):
     res_list_new = []
     logger.info('================================Start evaluating the LAST==============================\n')                 
     
+    trainset = EvalPASCAL(args.data_root, res=args.res, split='trainaug', transform_list=[])
+    trainloader = torch.utils.data.DataLoader(trainset, 
+                                                batch_size=args.batch_size_cluster,
+                                                shuffle=True, 
+                                                num_workers=args.num_workers,
+                                                pin_memory=True,
+                                                worker_init_fn=worker_init_fn(args.seed),
+                                                )
+
+    testset    = EvalPASCAL(args.data_root, res=args.res, split='val', transform_list=[])
+    testloader = torch.utils.data.DataLoader(testset,
+                                             batch_size=args.batch_size_test,
+                                             shuffle=False,
+                                             num_workers=args.num_workers,
+                                             pin_memory=True,
+                                             worker_init_fn=worker_init_fn(args.seed),
+                                             )
     
     if args.repeats > 0:
         for r in range(args.repeats):
             logger.info('============ Start Repeat Time {}============\n'.format(r))                 
             t1 = t.time()
             logger.info('Start clustering \n')
-            centroids, kmloss = run_mini_batch_kmeans_for_test(args, logger, testloader, model, device)
+            centroids, kmloss = run_mini_batch_kmeans_for_testloader(args, logger, trainloader, model, device, split='test')
             logger.info('Finish clustering with [Loss: {:.5f}/ Time: {}]\n'.format(kmloss, get_datetime(int(t.time())-int(t1))))
-            
             
             classifier = initialize_classifier(args, split='test')
             classifier = classifier.to(device)
