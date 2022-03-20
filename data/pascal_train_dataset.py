@@ -9,11 +9,11 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-from data.custom_transforms import *
-from data.utils import *  
+# from data.custom_transforms import *
+# from data.utils import *  
 
-# from custom_transforms import *
-# from utils import *
+from custom_transforms import *
+from utils import *
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
@@ -41,13 +41,15 @@ class TrainPASCAL(data.Dataset):
         _sal_dir = os.path.join(self.root, self.DB_NAME, 'saliency_unsupervised_model')
         self.images = []
         self.sals = []
+        self.names = []
         for ii, line in enumerate(lines):
             _image = os.path.join(_image_dir, line + ".jpg")
             _sal = os.path.join(_sal_dir, line + ".png")
             if os.path.isfile(_image) and os.path.isfile(_sal):
                 self.images.append(_image)
                 self.sals.append(_sal)
-
+                self.names.append(line)
+        
         assert(len(self.images) == len(self.sals))
         
         print('Number of Images {}'.format(len(self.images)))
@@ -85,6 +87,8 @@ class TrainPASCAL(data.Dataset):
     
     def __getitem__(self, index):
         
+        name = self.names[index]
+
         image = self.load_data(index)
         sal = self.load_sal(index)
 
@@ -94,8 +98,8 @@ class TrainPASCAL(data.Dataset):
         image_key, sal_key = self.transform_image_sal(index, image, sal, ver=1)
         
         label = self.get_pseudo_labels(index)
-
-        return index, image_query, sal_query, label, image_key, sal_key
+        
+        return index, image_query, sal_query, image_key, sal_key, label, name
 
     
     def get_pseudo_labels(self, index):
@@ -121,6 +125,7 @@ class TrainPASCAL(data.Dataset):
         sal = sal.squeeze().long()
         if len(sal.shape) == 3:
             sal = sal[0]
+        
         return image, sal
 
 
@@ -208,7 +213,7 @@ if __name__ == '__main__':
                         split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
     
 
-    indice, img1, sal1, _, img2, sal2 = trainset[0]
+    indice, img1, sal1, img2, sal2, label, name = trainset[0]
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=32,
                                                 shuffle=True, 
@@ -224,21 +229,22 @@ if __name__ == '__main__':
                                                 # worker_init_fn=worker_init_fn(2022))
     
     topil = torchvision.transforms.ToPILImage()
-    for i_batch, (indice, img1, sal1, _, img2, sal2) in enumerate(trainloader):
+    for i_batch, (indice, img1, sal1, img2, sal2, label, name) in enumerate(trainloader):
         # print(img1.shape)
         # print(sal1.shape)
         # print(img2.shape)
         # print(sal2.shape)
 
         # print(indice.shape)
+        print(name)
 
-        topil(img1[0]).show()
+        topil(img1[1]).show()
         # topil(img2[0]).show()
         feat3 = trainloader.dataset.transform_eqv_repr(indice, img2)
-        topil(feat3[0]).show()
-        if i_batch==10:
-            break
-
+        topil(feat3[1]).show()
+        # if i_batch==10:
+        #     break
+        break
         
 
 

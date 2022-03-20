@@ -126,7 +126,9 @@ def get_result_metrics(histogram):
 
 def compute_negative_euclidean(featmap,  centroids, metric_function):
     centroids = centroids.unsqueeze(-1).unsqueeze(-1)
-    return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))
+    # return - (1 - 2*metric_function(featmap)+ (centroids*centroids).sum(dim=1).unsqueeze(0))
+    return metric_function(featmap)
+
     
 
 def get_metric_as_conv(centroids, device):
@@ -136,7 +138,7 @@ def get_metric_as_conv(centroids, device):
     metric_function.weight.data = centroids_weight
     metric_function = metric_function.to(device)
     return metric_function
-
+    
 ################################################################################
 #                                General torch ops                             #
 ################################################################################

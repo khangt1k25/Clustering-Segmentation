@@ -88,13 +88,13 @@ def train(args, logger, dataloader, model, optimizer, device, epoch):
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
-    for i_batch, (_, img_q, sal_q, _, img_k, sal_k) in enumerate(dataloader):
+    for i_batch, (_, img_q, sal_q, img_k, sal_k, _, _) in enumerate(dataloader):
         
         img_q = img_q.cuda(non_blocking=True)
         sal_q = sal_q.cuda(non_blocking=True)
         img_k = img_k.cuda(non_blocking=True)
         sal_k = sal_k.cuda(non_blocking=True) 
-
+        
         logits, labels, saliency_loss = model.mc_forward(img_q, sal_q, img_k, sal_k)
 
          # Use E-Net weighting for calculating the pixel-wise loss.
@@ -252,7 +252,7 @@ def main(args, logger):
             res_list_new.append(res_new)     
             logger.info('  ACC: {:.4f} | mIoU: {:.4f} \n'.format(acc_new, res_new['mean_iou']))
             logger.info('============Finish Repeat Time {}============\n'.format(r)) 
-
+    
     else:
         logger.info('Repeats must be positive')
 

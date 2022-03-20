@@ -164,7 +164,7 @@ class EvalPASCAL(data.Dataset):
 
         return image, label
 
-
+    
 
     def _get_data_transformation(self):
         trans_list = []
@@ -186,27 +186,28 @@ class EvalPASCAL(data.Dataset):
 
   
 if __name__ == '__main__':
-    testset    = EvalPASCAL(root='PASCAL_VOC', res=224, split='val', transform_list=['jitter', 'blur', 'grey'])
+    testset    = EvalPASCAL(root='PASCAL_VOC', res=224, split='train', transform_list=['jitter', 'blur', 'grey'])
     
-    index, img, label = testset[0]
-    print(img.shape)
-    print(torch.unique(label))
-    topil = transforms.ToPILImage()
-    # topil(img).show()
-    topil(label.float()).show()
+    print(len(testset))
+    # index, img, label = testset[0]
+    # print(img.shape)
+    # print(torch.unique(label))
+    # topil = transforms.ToPILImage()
+    # # topil(img).show()
+    # topil(label.float()).show()
     
-    # print(torch.unique(sal))
-    testloader = torch.utils.data.DataLoader(testset,
-                                             batch_size=32,
-                                             shuffle=False,
-                                             num_workers=2,
-                                             pin_memory=True)
+    # # print(torch.unique(sal))
+    # testloader = torch.utils.data.DataLoader(testset,
+    #                                          batch_size=32,
+    #                                          shuffle=False,
+    #                                          num_workers=2,
+    #                                          pin_memory=True)
 
-    for i, (index, img, sal, label) in enumerate(testloader):
-        print(img.shape)
-        print(sal.shape)
-        print(label.shape)
-        print(index.shape)
-        print(label[0])
-        break
+    # for i, (index, img, sal, label) in enumerate(testloader):
+    #     print(img.shape)
+    #     print(sal.shape)
+    #     print(label.shape)
+    #     print(index.shape)
+    #     print(label[0])
+    #     break
     

@@ -114,7 +114,7 @@ class ContrastiveModel(nn.Module):
         return logits, sal_q, sal_loss
         
 
-    def forward(self, im_q, sal_q, im_k, sal_k, classfier, label):
+    def forward(self, im_q, sal_q, im_k, sal_k, classifier, label):
         
         batch_size, dim, H, W = im_q.shape
     
@@ -125,10 +125,13 @@ class ContrastiveModel(nn.Module):
         sal_loss = self.bce(q_bg, sal_q)
 
         
-        probs = classfier(q) # BxCxHxW
+        probs = classifier(q) # BxCxHxW
         probs = probs.permute((0, 2, 3, 1))
         probs = torch.reshape(probs, [-1, probs.shape[-1]]) # BHW x C
-        label = torch.reshape(label, [-1, ])
+        
+        
+
+
 
         with torch.no_grad():
             offset = torch.arange(0, 2 * batch_size, 2).to(sal_q.device)
@@ -161,31 +164,36 @@ class ContrastiveModel(nn.Module):
 
         # compute cluster loss : Not use bg
         probs = torch.index_select(probs, index=mask_indexes, dim=0) # pixels x C
-        label = torch.index_select(label, index=mask_indexes, dim=0).long()
+        with torch.no_grad():
+            label = torch.reshape(label, [-1, ])
+            label = torch.index_select(label, index=mask_indexes, dim=0).long().detach()
         
-        opt = False # 1:do not push away other cluster
-        if opt:
-            label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
-            probs = probs.gather(1, label.view(-1, 1))
-            label = torch.zeros(probs.shape[0]).detach()       
-        else:
-            label = label.detach()
+        # opt = False # 1:do not push away other cluster
+        # if opt:
+        #     label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
+        #     probs = probs.gather(1, label.view(-1, 1))
+        #     label = torch.zeros(probs.shape[0]).detach()       
+        # else:
+        #     label = label.detach()
         
                 
-        mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
-        l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)
+        # mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
+        # l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)
+
+
+      
+
         
-        
-        cluster_logits  = torch.cat([probs, l_batch_negatives, l_bank], dim=1) # pixels x (cluster+ B-1+K)
+        # cluster_logits  = torch.cat([probs, l_batch_negatives, l_bank], dim=1) # pixels x (cluster+ B-1+K)
         
 
         self._dequeue_and_enqueue(prototypes_obj) 
 
 
         logits /= self.T
-        cluster_logits /= self.T
+        probs /= self.T
         
-        return logits, sal_q, cluster_logits, label.long(), sal_loss
+        return logits, sal_q, probs, label, sal_loss
         
 
 

@@ -89,7 +89,7 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
-    for i_batch, (_, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
+    for i_batch, (_, img_q, sal_q, img_k, sal_k, label, _) in enumerate(dataloader):
         
         img_q = img_q.cuda(non_blocking=True)
         sal_q = sal_q.cuda(non_blocking=True)
@@ -106,6 +106,7 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
         p_class_non_zero_classes = freq.float() / labels.numel()
         p_class[uniq] = p_class_non_zero_classes
         w_class = 1 / torch.log(1.02 + p_class)
+        
         contrastive_loss = F.cross_entropy(logits, labels, weight=w_class,
                                             reduction='mean')
 
@@ -190,7 +191,7 @@ def main(args, logger):
         
         ## Compute cluster assignment. 
         t2 = t.time()
-        weight = compute_labels(args, logger, trainloader, model, centroids, device=device)     
+        _ = compute_labels(args, logger, trainloader, model, centroids, device=device)     
         logger.info('Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         ## Set nonparametric classifier.
@@ -198,8 +199,9 @@ def main(args, logger):
         classifier = classifier.to(device)
         classifier.weight.data = centroids.unsqueeze(-1).unsqueeze(-1)
         freeze_all(classifier)
-        del centroids
 
+
+        
         ## Set trainset to get pseudolabel
         trainset.mode  = 'label'
         trainset.labeldir = args.save_model_path

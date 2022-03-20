@@ -88,7 +88,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
     
     model.eval()
     with torch.no_grad():
-        for i_batch, (_, _, _, _, img_k, sal_k) in enumerate(dataloader):
+        for i_batch, (_, _, _, img_k, sal_k, _, _) in enumerate(dataloader):
             img_k, sal_k = img_k.cuda(non_blocking=True), sal_k.cuda(non_blocking=True)
             k, _ = model.model_k(img_k) # Bx dim x H x W
             k = nn.functional.normalize(k, dim=1)
@@ -152,6 +152,7 @@ def run_mini_batch_kmeans(args, logger, dataloader, model, device, split='train'
                 logger.info('[Saving features]: {} / {} | [K-Means Loss]: {:.4f}'.format(i_batch, len(dataloader), kmeans_loss.avg))
     
     centroids = torch.tensor(centroids, requires_grad=False).to(device)
+    centroids = nn.functional.normalize(centroids, dim=1)
 
     return centroids, kmeans_loss.avg
 
@@ -256,42 +257,42 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
     # Define metric function with conv layer. 
     metric_function = get_metric_as_conv(centroids, device)
     counts = torch.zeros(K, requires_grad=False).cpu()
-    
     model.eval()
+
     with torch.no_grad():
-        for i_batch, (indice, img_q, sal_q, label, img_k, sal_k) in enumerate(dataloader):
-            img_q = img_q.cuda(non_blocking=True)
-            q, _ = model.model_k(img_q) # Bx dim x H x W
-            q = nn.functional.normalize(q, dim=1)
-
-            if i_batch == 0:
-                logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-                logger.info('Batch input size   : {}'.format(list(img_q.shape)))
-                logger.info('Batch feature size : {}\n'.format(list(q.shape)))
-
-            # Compute distance and assign label. 
-            scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
-
-
-            # img_k = img_k.cuda(non_blocking=True)
-            # k, _ = model.model_k(img_k) # Bx dim x H x W
-            # k = nn.functional.normalize(k, dim=1)
+        for i_batch, (indice, img_q, sal_q, img_k, sal_k, _, name) in enumerate(dataloader):
+            # img_q = img_q.cuda(non_blocking=True)
+            # q, _ = model.model_k(img_q) # Bx dim x H x W
+            # q = nn.functional.normalize(q, dim=1)
 
             # if i_batch == 0:
             #     logger.info('Centroid size      : {}'.format(list(centroids.shape)))
-            #     logger.info('Batch input size   : {}'.format(list(img_k.shape)))
-            #     logger.info('Batch feature size : {}\n'.format(list(k.shape)))
+            #     logger.info('Batch input size   : {}'.format(list(img_q.shape)))
+            #     logger.info('Batch feature size : {}\n'.format(list(q.shape)))
 
             # # Compute distance and assign label. 
-            # scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+            # scores  = compute_negative_euclidean(q, centroids, metric_function) #BxCxHxW: all bg 're 0 
 
-            # # Perfom Eqv transform to Query view
-            # scores = dataloader.dataset.transform_eqv_repr(indice, scores)
 
+            img_k = img_k.cuda(non_blocking=True)
+            k, _ = model.model_k(img_k) # Bx dim x H x W
+            k = nn.functional.normalize(k, dim=1)
+
+            if i_batch == 0:
+                logger.info('Centroid size      : {}'.format(list(centroids.shape)))
+                logger.info('Batch input size   : {}'.format(list(img_k.shape)))
+                logger.info('Batch feature size : {}\n'.format(list(k.shape)))
+
+            # Compute distance and assign label. 
+            scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
+
+            # Perfom Eqv transform to Query view
+            scores = dataloader.dataset.transform_eqv_repr(indice, scores)
+            
 
             # Save labels and count. 
-            for idx, idx_img in enumerate(indice):
-                counts += postprocess_label(args, K, idx, idx_img, scores, view='query')
+            for idx, img_name in enumerate(list(name)):
+                counts += postprocess_label(args, K, idx, img_name, scores, view='query')
                 
             if (i_batch % 200) == 0:
                 logger.info('[Assigning labels] {} / {}'.format(i_batch, len(dataloader)))
@@ -324,7 +325,7 @@ def evaluate(args, logger, dataloader, model, classifier, device):
             
             preds = preds.view(-1).cpu().numpy()
             label = label.view(-1).cpu().numpy()
-
+            
 
             valid_preds = preds[label != 255]
             valid_label = label[label != 255]
