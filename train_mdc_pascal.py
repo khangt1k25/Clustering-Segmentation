@@ -140,7 +140,7 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
     writer.add_scalar('saliency loss', saliency_losses.avg, epoch)
     writer.add_scalar('kmeans loss', kmloss, epoch)
     writer.close()
-
+    
     return losses.avg
 
 
