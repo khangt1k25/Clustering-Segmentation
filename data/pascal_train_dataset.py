@@ -14,6 +14,8 @@ from PIL import Image, ImageFilter
 
 from custom_transforms import *
 from utils import *
+# from randAugment import RandAugment
+from v2 import RandAugment2
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
@@ -93,15 +95,26 @@ class TrainPASCAL(data.Dataset):
         sal = self.load_sal(index)
 
         image, sal = self.transform_base(index, image, sal)
+        # augmenter = torchvision.transforms.RandAugment()
+        
+        # imgs = [augmenter(orig_img) for _ in range(4)]
+        # plot(imgs)
+
+        
+        
+
+
 
         image_query, sal_query = self.transform_image_sal(index, image, sal, ver=0)
         image_key, sal_key = self.transform_image_sal(index, image, sal, ver=1)
         
-        label = self.get_pseudo_labels(index)
-        
-        return index, image_query, sal_query, image_key, sal_key, label, name
+        image_randaug, sal_randaug = self.randAugment(index, image, sal)
 
-    
+        label_query = self.get_pseudo_labels(index)
+        
+        return index, image_query, sal_query, image_key, sal_key, label_query, name, image_randaug, sal_randaug
+
+        
     def get_pseudo_labels(self, index):
         if self.mode == 'label':
             label = torch.load(os.path.join(self.labeldir, 'label_query', '{}.pkl'.format(index)))
@@ -127,7 +140,6 @@ class TrainPASCAL(data.Dataset):
             sal = sal[0]
         
         return image, sal
-
 
     def transform_inv(self, index, image, ver):
         """
@@ -168,6 +180,7 @@ class TrainPASCAL(data.Dataset):
 
         return feat
 
+    
     def init_transforms(self):
         N = len(self.images)
         # Base transform.
@@ -193,6 +206,10 @@ class TrainPASCAL(data.Dataset):
         self.vertical_tensor_flip = RandomVerticalTensorFlip(N=N, p_ref=self.random_vertical_flip.p_ref, plist=self.random_vertical_flip.plist)
 
 
+        # RandAugment
+        self.randAugment = RandAugment2(N=N, k=10, m=10)
+
+
         # Tensor and normalize transform. 
         self.transform_tensor = TensorTransform(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     
@@ -212,8 +229,9 @@ if __name__ == '__main__':
     trainset = TrainPASCAL('/home/khangt1k25/Code/Clustering-Segmentation/PASCAL_VOC', res=224, \
                         split='train', inv_list=inv_list, eqv_list=eqv_list) # NOTE: For now, max_scale = 1.  
     
-
-    indice, img1, sal1, img2, sal2, label, name = trainset[0]
+    # i = np.random.randint(0, 100)
+    i = 100
+    indice, img1, sal1, img2, sal2, label, name, randaug, randsal = trainset[i]
     trainloader = torch.utils.data.DataLoader(trainset, 
                                                 batch_size=32,
                                                 shuffle=True, 
@@ -222,29 +240,33 @@ if __name__ == '__main__':
     )
     
     
-
-
+    
+    
 
                                                 # collate_fn=collate_train_baseline,
                                                 # worker_init_fn=worker_init_fn(2022))
     
     topil = torchvision.transforms.ToPILImage()
-    for i_batch, (indice, img1, sal1, img2, sal2, label, name) in enumerate(trainloader):
-        # print(img1.shape)
-        # print(sal1.shape)
-        # print(img2.shape)
-        # print(sal2.shape)
 
-        # print(indice.shape)
-        print(name)
+    # topil(randaug).show()
+    randaug.show()
+    randsal.show()
+    # for i_batch, (indice, img1, sal1, img2, sal2, label, name, randaug) in enumerate(trainloader):
+    #     # print(img1.shape)
+    #     # print(sal1.shape)
+    #     # print(img2.shape)
+    #     # print(sal2.shape)
 
-        topil(img1[1]).show()
-        # topil(img2[0]).show()
-        feat3 = trainloader.dataset.transform_eqv_repr(indice, img2)
-        topil(feat3[1]).show()
-        # if i_batch==10:
-        #     break
-        break
+    #     # print(indice.shape)
+    #     print(name)
+
+    #     topil(img1[1]).show()
+    #     # topil(img2[0]).show()
+    #     feat3 = trainloader.dataset.transform_eqv_repr(indice, img2)
+    #     topil(feat3[1]).show()
+    #     # if i_batch==10:
+    #     #     break
+    #     break
         
 
 

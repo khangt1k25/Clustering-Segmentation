@@ -114,7 +114,7 @@ class ContrastiveModel(nn.Module):
         return logits, sal_q, sal_loss
         
 
-    def forward(self, im_q, sal_q, im_k, sal_k, classifier, label):
+    def forward(self, im_q, sal_q, im_k, sal_k, classifier, label, img_randaug, sal_randaug):
         
         batch_size, dim, H, W = im_q.shape
     
@@ -180,7 +180,7 @@ class ContrastiveModel(nn.Module):
         # mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
         # l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)
 
-
+        
       
 
         

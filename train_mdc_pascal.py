@@ -89,16 +89,18 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
-    for i_batch, (_, img_q, sal_q, img_k, sal_k, label, _) in enumerate(dataloader):
+    for i_batch, (_, img_q, sal_q, img_k, sal_k, label, _, img_randaug, sal_randaug) in enumerate(dataloader):
         
         img_q = img_q.cuda(non_blocking=True)
         sal_q = sal_q.cuda(non_blocking=True)
         label = label.cuda(non_blocking=True)
         img_k = img_k.cuda(non_blocking=True)
         sal_k = sal_k.cuda(non_blocking=True)
-
+        img_randaug = img_randaug.cuda(non_blocking=True)
+        sal_randaug = sal_randaug.cuda(non_blocking=True)
         
-        logits, labels, cluster_logits, cluster_labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label)
+        
+        logits, labels, cluster_logits, cluster_labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label, img_randaug, sal_randaug)
 
          # Use E-Net weighting for calculating the pixel-wise loss.
         uniq, freq = torch.unique(labels, return_counts=True)

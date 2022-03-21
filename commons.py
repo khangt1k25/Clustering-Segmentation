@@ -1,4 +1,5 @@
 from functools import reduce
+from operator import pos
 import os 
 import numpy as np 
 import torch 
@@ -287,12 +288,13 @@ def compute_labels(args, logger, dataloader, model, centroids, device):
             scores  = compute_negative_euclidean(k, centroids, metric_function) #BxCxHxW: all bg 're 0 
 
             # Perfom Eqv transform to Query view
-            scores = dataloader.dataset.transform_eqv_repr(indice, scores)
-            
+            scores_query = dataloader.dataset.transform_eqv_repr(indice, scores)
 
             # Save labels and count. 
             for idx, img_name in enumerate(list(name)):
-                counts += postprocess_label(args, K, idx, img_name, scores, view='query')
+                counts += postprocess_label(args, K, idx, img_name, scores_query, view='query')
+                
+            
                 
             if (i_batch % 200) == 0:
                 logger.info('[Assigning labels] {} / {}'.format(i_batch, len(dataloader)))

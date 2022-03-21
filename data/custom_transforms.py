@@ -25,7 +25,6 @@ class BaseTransform(object):
 
 
 
-
 class RandomResizedCrop(torchvision.transforms.RandomResizedCrop):
     def __init__(self, size, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.)):
         super(RandomResizedCrop, self).__init__(size, scale=scale, ratio=ratio)
@@ -72,16 +71,6 @@ class RandomCrop(object):
 
         return TF.crop(image, top, left, self.res, self.res)
 
-class RandomHorizontalFlip(object):
-    def __init__(self, N, p=0.5):
-        self.p_ref = p
-        self.plist = np.random.random_sample(N)
-
-    def __call__(self, index, image):
-        if self.plist[index] < self.p_ref:
-            return TF.hflip(image)
-        else:
-            return image
 
 
 class TensorTransform(object):
@@ -95,8 +84,7 @@ class TensorTransform(object):
         image = self.normalize(image)
     
         return image, sal
-        
-        
+               
 class RandomGaussianBlur(object):
     def __init__(self, sigma, p, N):
         self.min_x = sigma[0]
@@ -115,7 +103,6 @@ class RandomGaussianBlur(object):
             return image.filter(ImageFilter.GaussianBlur(radius=s))
         else:
             return image
-
 
 class RandomGrayScale(object):
     def __init__(self, p, N):
@@ -143,7 +130,6 @@ class RandomColorBrightness(object):
             return TF.adjust_brightness(image, self.rlist[index])
         else:
             return image
-
 
 class RandomColorContrast(object):
     def __init__(self, x, p, N):
@@ -173,8 +159,6 @@ class RandomColorSaturation(object):
             return TF.adjust_saturation(image, self.rlist[index])
         else:
             return image
-
-
 class RandomColorHue(object):
     def __init__(self, x, p, N):
         self.min_x = -x
@@ -234,13 +218,12 @@ class RandomVerticalTensorFlip(object):
         return torch.stack([image_t[np.where(I==i)[0][0]] if i in I else image[i] for i in range(image.size(0))])
 
 
-
 class RandomHorizontalTensorFlip(object):
     def __init__(self, N, p_ref, plist):
         self.N = N 
         self.p_ref = p_ref
         self.plist = plist
-
+    
     def __call__(self, indice, image):
         I = np.nonzero(self.plist[indice] < self.p_ref)[0]
         
@@ -250,6 +233,10 @@ class RandomHorizontalTensorFlip(object):
             image_t = image[I].flip([3])
         
         return torch.stack([image_t[np.where(I==i)[0][0]] if i in I else image[i] for i in range(image.size(0))])   
+
+
+
+
 
 # We don't use it
 # class RandomResizedCrop(object):
