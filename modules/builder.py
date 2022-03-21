@@ -114,7 +114,7 @@ class ContrastiveModel(nn.Module):
         return logits, sal_q, sal_loss
         
 
-    def forward(self, im_q, sal_q, im_k, sal_k, classifier, label, img_randaug, sal_randaug):
+    def forward(self, im_q, sal_q, im_k, sal_k, img_randaug, sal_randaug, classifier):
         
         batch_size, dim, H, W = im_q.shape
     
@@ -125,13 +125,18 @@ class ContrastiveModel(nn.Module):
         sal_loss = self.bce(q_bg, sal_q)
 
         
-        probs = classifier(q) # BxCxHxW
-        probs = probs.permute((0, 2, 3, 1))
-        probs = torch.reshape(probs, [-1, probs.shape[-1]]) # BHW x C
+        query_probs = classifier(q) # BxCxHxW
+        query_probs = query_probs.permute((0, 2, 3, 1))
+        query_probs = torch.reshape(query_probs, [-1, query_probs.shape[-1]]) # BHW x C
         
         
+        randaug_probs,  _ = self.model_q(img_randaug)
+        randaug_probs = nn.functional.normalize(randaug_probs, dim=1)
+        randaug_probs = classifier(randaug_probs)
+        randaug_probs = randaug_probs.permute((0, 2, 3, 1))
+        randaug_probs = torch.reshape(randaug_probs, [-1, randaug_probs.shape[-1]])  # BHW x C
 
-
+        
 
         with torch.no_grad():
             offset = torch.arange(0, 2 * batch_size, 2).to(sal_q.device)
@@ -141,9 +146,30 @@ class ContrastiveModel(nn.Module):
             sal_q = torch.index_select(sal_q, index=mask_indexes, dim=0) // 2
         
         with torch.no_grad():
+            offset2 = torch.arange(0, 2 * batch_size, 2).to(sal_randaug.device)
+            sal_randaug = (sal_randaug + torch.reshape(offset2, [-1, 1, 1]))*sal_randaug # all bg's to 0
+            sal_randaug = sal_randaug.view(-1)
+            mask_indexes2 = torch.nonzero((sal_randaug)).view(-1).squeeze()
+            # sal_randaug = torch.index_select(sal_randaug, index=mask_indexes2, dim=0) // 2
+        
+        query_probs = torch.index_select(query_probs, index=mask_indexes, dim=0) # pixels x C
+        randaug_probs = torch.index_select(randaug_probs, index=mask_indexes2, dim=0) # pixels x C
+        with torch.no_grad():
+            pseudo_label_query = query_probs.topk(k=1, dim=1)[1] # pixels 
+            val_randaug, pseudo_label_randaug = randaug_probs.topk(k=1, dim=1)# pixels, pixels
+            threshold = 0.9
+            mask = val_randaug.ge(threshold).float()
+            
+            pseudo_label_query = pseudo_label_query.long().detach()
+            pseudo_label_randaug = pseudo_label_randaug.long().detach()
+            
+
+        with torch.no_grad():
             self._momentum_update_key_encoder()  # update the key encoder
             k, _ = self.model_k(im_k)  # keys: N x C x H x W
             k = nn.functional.normalize(k, dim=1)
+
+
             k = k.reshape(batch_size, self.dim, -1) # B x dim x H.W
             
             sal_k = sal_k.reshape(batch_size, -1, 1).type(q.dtype)
@@ -162,12 +188,10 @@ class ContrastiveModel(nn.Module):
         l_bank = torch.matmul(q, negatives) # pixels x K
         logits = torch.cat([l_batch, l_bank], dim=1) # pixels x (B+K)
 
-        # compute cluster loss : Not use bg
-        probs = torch.index_select(probs, index=mask_indexes, dim=0) # pixels x C
-        with torch.no_grad():
-            label = torch.reshape(label, [-1, ])
-            label = torch.index_select(label, index=mask_indexes, dim=0).long().detach()
         
+        
+
+
         # opt = False # 1:do not push away other cluster
         # if opt:
         #     label = torch.index_select(label, index=mask_indexes, dim=0) # pixels
@@ -180,7 +204,7 @@ class ContrastiveModel(nn.Module):
         # mask = torch.ones_like(l_batch).scatter_(1, sal_q.unsqueeze(1), 0.)
         # l_batch_negatives = l_batch[mask.bool()].view(l_batch.shape[0], -1)
 
-        
+
       
 
         
@@ -191,9 +215,10 @@ class ContrastiveModel(nn.Module):
 
 
         logits /= self.T
-        probs /= self.T
+        query_probs /= 0.1
+        randaug_probs /= 0.1
         
-        return logits, sal_q, probs, label, sal_loss
+        return logits, sal_q, probs, pseudo_label_query, sal_loss, randaug, pseudo_label_randaug, mask
         
 
 

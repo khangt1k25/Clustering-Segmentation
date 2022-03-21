@@ -9,13 +9,12 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np 
 from PIL import Image, ImageFilter
-# from data.custom_transforms import *
-# from data.utils import *  
-
-from custom_transforms import *
-from utils import *
-# from randAugment import RandAugment
-from v2 import RandAugment2
+from data.custom_transforms import *
+from data.utils import *  
+from data.v2 import RandAugment2
+# from custom_transforms import *
+# from utils import *
+# from v2 import RandAugment2
 
 class TrainPASCAL(data.Dataset):
     GOOGLE_DRIVE_ID = '1pxhY5vsLwXuz6UHZVUKhtb7EJdCg2kuH'
@@ -89,32 +88,24 @@ class TrainPASCAL(data.Dataset):
     
     def __getitem__(self, index):
         
-        name = self.names[index]
+        # name = self.names[index]
 
         image = self.load_data(index)
         sal = self.load_sal(index)
 
         image, sal = self.transform_base(index, image, sal)
-        # augmenter = torchvision.transforms.RandAugment()
-        
-        # imgs = [augmenter(orig_img) for _ in range(4)]
-        # plot(imgs)
-
-        
-        
-
-
+   
 
         image_query, sal_query = self.transform_image_sal(index, image, sal, ver=0)
         image_key, sal_key = self.transform_image_sal(index, image, sal, ver=1)
         
         image_randaug, sal_randaug = self.randAugment(index, image, sal)
 
-        label_query = self.get_pseudo_labels(index)
+        # label_query = self.get_pseudo_labels(index)
         
-        return index, image_query, sal_query, image_key, sal_key, label_query, name, image_randaug, sal_randaug
+        return index, image_query, sal_query, image_key, sal_key, image_randaug, sal_randaug
 
-        
+
     def get_pseudo_labels(self, index):
         if self.mode == 'label':
             label = torch.load(os.path.join(self.labeldir, 'label_query', '{}.pkl'.format(index)))
@@ -179,7 +170,9 @@ class TrainPASCAL(data.Dataset):
             feat = self.vertical_tensor_flip(index, feat)
 
         return feat
-
+    
+    def transform_ranaug_repr(self, index, feat, sal):
+        return self.randAugment(indice, feat, sal)
     
     def init_transforms(self):
         N = len(self.images)

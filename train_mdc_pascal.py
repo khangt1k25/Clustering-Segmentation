@@ -83,24 +83,25 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
     losses = AverageMeter('Total loss')
     contrastive_losses = AverageMeter('Contrastive Loss')
     cluster_losses = AverageMeter('Cluster loss')
+    randaug_losses = AverageMeter('RandAug Loss')
     saliency_losses = AverageMeter('Saliency Loss')
     progress = ProgressMeter(len(dataloader), 
-                        [losses, contrastive_losses , cluster_losses, saliency_losses],
+                        [losses, contrastive_losses , cluster_losses, randaug_losses, saliency_losses],
                         prefix="Epoch: [{}]".format(epoch))
     
     model.train()
-    for i_batch, (_, img_q, sal_q, img_k, sal_k, label, _, img_randaug, sal_randaug) in enumerate(dataloader):
+    for i_batch, (_, img_q, sal_q, img_k, sal_k, img_randaug, sal_randaug) in enumerate(dataloader):
         
         img_q = img_q.cuda(non_blocking=True)
         sal_q = sal_q.cuda(non_blocking=True)
-        label = label.cuda(non_blocking=True)
+        # label = label.cuda(non_blocking=True)
         img_k = img_k.cuda(non_blocking=True)
         sal_k = sal_k.cuda(non_blocking=True)
         img_randaug = img_randaug.cuda(non_blocking=True)
         sal_randaug = sal_randaug.cuda(non_blocking=True)
+
         
-        
-        logits, labels, cluster_logits, cluster_labels, saliency_loss = model(img_q, sal_q, img_k, sal_k, classifier, label, img_randaug, sal_randaug)
+        logits, labels, cluster_logits, cluster_labels, saliency_loss, rand_logits, rand_labels, mask = model(img_q, sal_q, img_k, sal_k, img_randaug, sal_randaug, classifier)
 
          # Use E-Net weighting for calculating the pixel-wise loss.
         uniq, freq = torch.unique(labels, return_counts=True)
@@ -114,15 +115,16 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
 
 
         cluster_loss = F.cross_entropy(cluster_logits, cluster_labels, reduction='mean')
-
+        randaug_loss = (F.cross_entropy(rand_logits, rand_labels ,reduction='None') * mask).mean()
         
         
-        loss = contrastive_loss + saliency_loss + args.coeff *cluster_loss
+        loss = contrastive_loss + saliency_loss + args.coeff *cluster_loss + args.coeff * 0.5 * randaug_loss 
 
 
         contrastive_losses.update(contrastive_loss.item())
         cluster_losses.update(cluster_loss.item())
         saliency_losses.update(saliency_loss.item())
+        randaug_losses.update(randaug_loss.item())
         losses.update(loss.item())
         
         optimizer.zero_grad()
@@ -139,6 +141,7 @@ def train(args, dataloader, model, classifier, optimizer, epoch, kmloss):
     writer.add_scalar('total loss', losses.avg, epoch)
     writer.add_scalar('contrastive loss', contrastive_losses.avg, epoch)
     writer.add_scalar('cluster loss', cluster_losses.avg, epoch)
+    writer.add_scalar('randaug loss', randaug_losses.avg, epoch)
     writer.add_scalar('saliency loss', saliency_losses.avg, epoch)
     writer.add_scalar('kmeans loss', kmloss, epoch)
     writer.close()
@@ -192,9 +195,9 @@ def main(args, logger):
         logger.info('Finish clustering with loss {} and time: [{}]\n'.format(kmloss , get_datetime(int(t.time())-int(t1))))
         
         ## Compute cluster assignment. 
-        t2 = t.time()
-        _ = compute_labels(args, logger, trainloader, model, centroids, device=device)     
-        logger.info('Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
+        # t2 = t.time()
+        # _ = compute_labels(args, logger, trainloader, model, centroids, device=device)     
+        # logger.info('Cluster labels ready. [{}]\n'.format(get_datetime(int(t.time())-int(t2)))) 
 
         ## Set nonparametric classifier.
         classifier = initialize_classifier(args, split='train')
@@ -205,7 +208,7 @@ def main(args, logger):
 
         
         ## Set trainset to get pseudolabel
-        trainset.mode  = 'label'
+        # trainset.mode  = 'label'
         trainset.labeldir = args.save_model_path
         trainloader_loop  = torch.utils.data.DataLoader(trainset, 
                                                         batch_size=args.batch_size_train, 
@@ -222,7 +225,7 @@ def main(args, logger):
         lr = adjust_learning_rate(args, optimizer, epoch)
         logger.info('Adjusted learning rate to {:.5f} \n'.format(lr))
         train_loss = train(args, trainloader_loop, model, classifier, optimizer, epoch, kmloss) 
-        trainset.mode  = 'normal'
+        # trainset.mode  = 'normal'
         logger.info('Finish training ...\n')
         
 
